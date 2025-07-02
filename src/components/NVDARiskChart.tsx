@@ -639,6 +639,38 @@ export default function NVDARiskChart() {
     }
   };
 
+  // Zoom to past 12 months function
+  const zoomToLast12Months = () => {
+    if (chartRef.current) {
+      const xScale = chartRef.current.scales.x;
+      const yScale = chartRef.current.scales.y;
+      
+      if (xScale && yScale) {
+        // Set to past 12 months
+        const endDate = new Date(); // Current date
+        const startDate = new Date(endDate.getFullYear() - 1, endDate.getMonth(), endDate.getDate()); // 12 months ago
+        
+        xScale.options.min = startDate.getTime();
+        xScale.options.max = endDate.getTime();
+        yScale.options.min = undefined; // Auto-fit to data
+        yScale.options.max = undefined; // Auto-fit to data
+        
+        // Clear any active hover states
+        chartRef.current.setActiveElements([]);
+        
+        // Force a proper re-render with animation
+        chartRef.current.update();
+        
+        // Ensure data points are properly rendered with a second update
+        setTimeout(() => {
+          if (chartRef.current) {
+            chartRef.current.update('none');
+          }
+        }, 50);
+      }
+    }
+  };
+
   // Calculate data bounds for zoom limits - based on ALL data, not just filtered
   const dataBounds = useMemo(() => {
     if (data.length === 0) {
@@ -994,6 +1026,44 @@ export default function NVDARiskChart() {
         <CurrentRiskAssessment currentRisk={currentRisk} currentPrice={currentPrice} />
         </div>
 
+        {/* Professional Chart */}
+        <div className={`bg-gray-800 rounded-lg p-2 md:p-6 shadow-xl transition-all duration-500 relative mb-4 md:mb-8 ${
+          isAnimating ? 'opacity-90 scale-99' : 'opacity-100 scale-100'
+        }`}>
+          {/* Chart Control Buttons Overlay */}
+          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10 flex gap-2">
+            <button
+              onClick={resetZoom}
+              className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
+            >
+              🔍 Reset Zoom
+            </button>
+            <button
+              onClick={zoomToLast12Months}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
+            >
+              📅 Past 12 Months
+            </button>
+          </div>
+          
+          <div style={{ height: `${chartHeight}px` }}>
+            {chartReady && !loading ? (
+              <Scatter
+                ref={chartRef}
+                data={chartData} 
+                options={chartOptions} 
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-gray-400 text-center">
+                  <div className="text-lg mb-2">Loading Chart...</div>
+                  <div className="text-sm">Preparing interactive features</div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Risk Algorithm Explanation - Hide on small screens by default */}
         <div className="hidden md:block transition-all duration-300">
         <RiskAlgorithmExplanation riskStats={riskStats} />
@@ -1166,36 +1236,6 @@ export default function NVDARiskChart() {
         {/* Risk Legend */}
         <div className="transition-all duration-300">
         <RiskLegend />
-        </div>
-
-        {/* Professional Chart */}
-        <div className={`bg-gray-800 rounded-lg p-2 md:p-6 shadow-xl transition-all duration-500 relative ${
-          isAnimating ? 'opacity-90 scale-99' : 'opacity-100 scale-100'
-        }`}>
-          {/* Reset Zoom Button Overlay */}
-          <button
-            onClick={resetZoom}
-            className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10 bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
-          >
-            🔍 Reset Zoom
-          </button>
-          
-          <div style={{ height: `${chartHeight}px` }}>
-            {chartReady && !loading ? (
-              <Scatter
-                ref={chartRef}
-                data={chartData} 
-                options={chartOptions} 
-              />
-            ) : (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-gray-400 text-center">
-                  <div className="text-lg mb-2">Loading Chart...</div>
-                  <div className="text-sm">Preparing interactive features</div>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
 
         {/* Mobile-Optimized Statistics */}
