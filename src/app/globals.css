@@ -24,3 +24,221 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Custom animations for interactive chart */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes bounce {
+  0%, 20%, 53%, 80%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  40%, 43% {
+    transform: translate3d(0, -5px, 0);
+  }
+  70% {
+    transform: translate3d(0, -3px, 0);
+  }
+  90% {
+    transform: translate3d(0, -1px, 0);
+  }
+}
+
+@keyframes chartDataLoad {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slideIn {
+  animation: slideIn 0.4s ease-out;
+}
+
+.animate-bounce-subtle {
+  animation: bounce 0.6s ease-in-out;
+}
+
+.animate-chartLoad {
+  animation: chartDataLoad 0.5s ease-out;
+}
+
+/* Touch-friendly hover effects */
+@media (hover: hover) {
+  .touch-hover:hover {
+    transform: scale(1.02);
+    transition: transform 0.2s ease;
+  }
+}
+
+/* Smooth scrolling for mobile */
+@media (max-width: 768px) {
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  /* Improve touch responsiveness */
+  button, [role="button"] {
+    touch-action: manipulation;
+  }
+  
+  /* Better mobile typography */
+  .mobile-text {
+    font-size: clamp(0.75rem, 2.5vw, 1rem);
+  }
+  
+  /* Mobile-specific chart optimizations */
+  .recharts-responsive-container {
+    /* Ensure chart uses full available width */
+    min-width: 100% !important;
+  }
+  
+  /* Optimize chart text for mobile */
+  .recharts-cartesian-axis-tick-value {
+    font-size: 10px !important;
+  }
+  
+  /* Better mobile spacing */
+  body {
+    -webkit-text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  /* Remove unnecessary margins on mobile */
+  .mobile-chart-container {
+    margin: 0 !important;
+    padding: 0.5rem !important;
+  }
+  
+  /* Ensure buttons are properly sized for touch */
+  button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Optimize grid layouts for mobile */
+  .mobile-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 0.5rem !important;
+  }
+}
+
+/* Very small screens optimization */
+@media (max-width: 480px) {
+  /* Further reduce padding on very small screens */
+  .min-h-screen {
+    padding: 0.25rem !important;
+  }
+  
+  /* Ensure text remains readable */
+  .text-xs {
+    font-size: 0.7rem !important;
+  }
+  
+  /* Optimize chart margins for tiny screens */
+  .recharts-wrapper {
+    margin: 0 !important;
+  }
+}
+
+/* Loading skeleton animation */
+@keyframes skeleton {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: calc(200px + 100%) 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #374151 25%, #4b5563 37%, #374151 63%);
+  background-size: 400px 100%;
+  animation: skeleton 1.5s ease-in-out infinite;
+}
+
+/* Custom scrollbar for better aesthetics */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1f2937;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* Focus styles for accessibility */
+button:focus-visible, 
+input:focus-visible,
+details:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .bg-gray-800 {
+    background-color: #000000;
+  }
+  
+  .text-gray-300 {
+    color: #ffffff;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
