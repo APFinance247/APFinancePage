@@ -65,12 +65,16 @@ const getRiskColor = (risk: number): string => {
   const normalized = Math.max(0, Math.min(1, (risk - 1) / 9));
   
   const colors = [
-    { r: 68, g: 1, b: 84 },     // Deep purple (risk 1)
-    { r: 59, g: 82, b: 139 },   // Deep blue (risk 2.5)
-    { r: 33, g: 145, b: 140 },  // Teal (risk 4)
-    { r: 94, g: 201, b: 98 },   // Green (risk 6)
-    { r: 253, g: 231, b: 37 },  // Bright yellow (risk 8)
-    { r: 255, g: 255, b: 0 },   // Pure yellow (risk 10)
+    { r: 68, g: 1, b: 84 },     // Deep purple (risk 1) - extreme value
+    { r: 94, g: 39, b: 139 },   // Medium-dark purple (risk 2.5) - excellent value
+    { r: 123, g: 104, b: 238 }, // Medium purple (risk 3.5) - good value  
+    { r: 147, g: 132, b: 209 }, // Light purple (risk 4.5) - good buy zone
+    { r: 33, g: 145, b: 140 },  // Teal (risk 5.5) - moderate (REVERTED)
+    { r: 94, g: 201, b: 98 },   // Green (risk 6.5) - moderate-high (REVERTED)
+    { r: 132, g: 204, b: 22 },  // Yellow-green (risk 7.5) - elevated
+    { r: 255, g: 193, b: 7 },   // Golden yellow (risk 8.5) - high risk
+    { r: 255, g: 235, b: 59 },  // Bright yellow (risk 9.5) - very high risk
+    { r: 255, g: 255, b: 0 },   // Pure bright yellow (risk 10) - extreme risk
   ];
   
   const segments = colors.length - 1;
@@ -246,25 +250,29 @@ const calculateEMAFocusedRisk = (dataPoints: DataPoint[]): DataPoint[] => {
     let risk: number;
     
     // STEP 1: Determine base risk from EMA position (this sets the primary risk level)
-    if (dev8EMA >= 0.20) {
-      // 20%+ above 8W EMA = RARE YELLOW TERRITORY (Risk 8-10)
-      if (dev8EMA >= 0.35) {
+    if (dev8EMA >= 0.15) {
+      // 15%+ above 8W EMA = YELLOW TERRITORY (Risk 8-10) - Made more sensitive
+      if (dev8EMA >= 0.30) {
         risk = 9.5; // Extreme overextension
-      } else if (dev8EMA >= 0.28) {
+      } else if (dev8EMA >= 0.22) {
         risk = 9.0; // Very high overextension  
+      } else if (dev8EMA >= 0.18) {
+        risk = 8.5; // High overextension
       } else {
-        risk = 8.0; // High overextension
+        risk = 8.0; // Moderate overextension
       }
     } else if (dev8EMA >= 0.08) {
-      // 8-20% above 8W EMA = ORANGE TERRITORY (Risk 6-7)
-      if (dev8EMA >= 0.15) {
-        risk = 7.0; // High risk
+      // 8-15% above 8W EMA = ELEVATED TERRITORY (Risk 6.5-8)
+      if (dev8EMA >= 0.12) {
+        // 12-15% above 8W EMA: More aggressive scaling toward 8
+        risk = 7.5 + (dev8EMA - 0.12) / 0.03 * 0.5; // 7.5-8.0
       } else {
-        risk = 6.0 + (dev8EMA - 0.08) / 0.07 * 1.0; // 6.0-7.0
+        // 8-12% above 8W EMA: Moderate scaling
+        risk = 6.5 + (dev8EMA - 0.08) / 0.04 * 1.0; // 6.5-7.5
       }
     } else if (dev8EMA >= -0.05) {
-      // Near 8W EMA = MODERATE TERRITORY (Risk 5-6)
-      risk = 5.0 + (dev8EMA + 0.05) / 0.13 * 1.0; // 5.0-6.0
+      // Near 8W EMA = MODERATE TERRITORY (Risk 5-6.5)
+      risk = 5.0 + (dev8EMA + 0.05) / 0.13 * 1.5; // 5.0-6.5
     } else if (dev21EMA >= -0.08) {
       // Near 21W EMA = MODERATE-LOW TERRITORY (Risk 3-5)
       if (dev21EMA >= 0) {
@@ -390,7 +398,11 @@ const CurrentRiskAssessment = ({ currentRisk, currentPrice }: { currentRisk: num
                 className="h-full transition-all duration-500 rounded-full"
                 style={{ 
                   width: `${(currentRisk / 10) * 100}%`,
-                  background: `linear-gradient(90deg, rgb(68,1,84), ${riskInfo.color})`
+                  background: currentRisk <= 4 
+                    ? `linear-gradient(90deg, rgb(68,1,84), ${riskInfo.color})` // Purple progression for 1-4
+                    : currentRisk <= 7 
+                    ? `linear-gradient(90deg, rgb(68,1,84), rgb(147,132,209), ${riskInfo.color})` // Purple to current for 5-7
+                    : `linear-gradient(90deg, rgb(68,1,84), rgb(147,132,209), rgb(94,201,98), ${riskInfo.color})` // Full progression for 8-10
                 }}
               />
             </div>
@@ -398,6 +410,26 @@ const CurrentRiskAssessment = ({ currentRisk, currentPrice }: { currentRisk: num
               <span>Very Low</span>
               <span>Moderate</span>
               <span>Very High</span>
+          </div>
+          
+          {/* Risk Level Scale */}
+          <div className="mt-4 pt-3 border-t border-gray-600">
+            <div className="text-xs text-gray-400 text-center mb-2">Risk Level Scale</div>
+            <div className="flex justify-center gap-1">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((level) => (
+                <div key={level} className="text-center">
+                  <div
+                    className="w-4 h-4 rounded-full shadow-sm border border-gray-600 mb-1"
+                    style={{ backgroundColor: getRiskColor(level) }}
+                    title={`Risk Level ${level}`}
+                  />
+                  <div className="text-xs text-gray-400">{level}</div>
+                </div>
+              ))}
+            </div>
+            <div className="text-xs text-gray-400 text-center mt-2">
+              Purple (1-4): Excellent to Good Value • Green (5-7): Moderate Risk • Yellow (8-10): High Risk
+            </div>
           </div>
         </div>
       </div>
@@ -415,11 +447,10 @@ const RiskAlgorithmExplanation = ({ riskStats }: { riskStats?: RiskStats }) => {
         <div>
           <h4 className="text-md font-semibold text-blue-400 mb-2">EMA-Focused Risk Levels:</h4>
           <ul className="text-sm text-gray-300 space-y-1">
-            <li>• <strong>Yellow Risk (8-10):</strong> 20%+ above 8W EMA = RARE overextension</li>
-            <li>• <strong>Orange Risk (6-7):</strong> 8-20% above 8W EMA = elevated</li>
-            <li>• <strong>Green Risk (5-6):</strong> Near 8W EMA = moderate</li>
-            <li>• <strong>Blue Risk (3-5):</strong> Around 21W EMA = good opportunity</li>
-            <li>• <strong>Purple Risk (1-3):</strong> Below 50W-200W SMAs = excellent value</li>
+            <li>• <strong>Yellow Risk (8-10):</strong> 15%+ above 8W EMA = overextension (more sensitive)</li>
+            <li>• <strong>Green Risk (5-7):</strong> 8-15% above 8W EMA to near 8W EMA = moderate</li>
+            <li>• <strong>Purple Risk (3-4):</strong> Around 21W EMA = good buy zone</li>
+            <li>• <strong>Deep Purple Risk (1-3):</strong> Below 50W-200W SMAs = excellent value</li>
             <li>• <strong>Smart Volatility:</strong> High volatility = opportunity discount</li>
           </ul>
         </div>
@@ -428,7 +459,7 @@ const RiskAlgorithmExplanation = ({ riskStats }: { riskStats?: RiskStats }) => {
           <h4 className="text-md font-semibold text-green-400 mb-2">Why EMA-Focused Works:</h4>
           <ul className="text-sm text-gray-300 space-y-1">
             <li>• <strong>Realistic Entries:</strong> 21W EMA area = solid buying opportunity</li>
-            <li>• <strong>Rare Yellow:</strong> Only extreme overextension above 8W EMA</li>
+            <li>• <strong>Sensitive Yellow:</strong> 15%+ overextension triggers high risk warnings</li>
             <li>• <strong>EMA Responsiveness:</strong> Faster reaction to trend changes</li>
             <li>• <strong>Deep Value Preserved:</strong> SMA touches still show as purple</li>
             <li>• <strong>Trend Aware:</strong> Considers short and long-term alignment</li>
@@ -465,8 +496,8 @@ const RiskAlgorithmExplanation = ({ riskStats }: { riskStats?: RiskStats }) => {
       )}
       
       <div className="mt-4 p-3 bg-gradient-to-r from-gray-700 to-gray-600 rounded text-xs text-gray-300">
-        <strong>🎯 EMA Philosophy:</strong> This algorithm makes yellow rare by requiring 20%+ overextension above 
-        the 8-week EMA. Around 21W EMA = good opportunity (blue), around 8W EMA = moderate risk (green), 
+        <strong>🎯 EMA Philosophy:</strong> This algorithm makes yellow territory more sensitive by requiring 15%+ overextension above 
+        the 8-week EMA. Around 21W EMA = good buy zone (purple), around 8W EMA = moderate risk (green), 
         deep SMA touches = excellent value (purple). Designed for realistic modern market entry and exit signals.
       </div>
     </div>
@@ -549,7 +580,7 @@ export default function NVDARiskChart() {
   const [showMovingAverages, setShowMovingAverages] = useState(false);
   
   // New state for time range control
-  const [selectedTimeRange, setSelectedTimeRange] = useState<string>('2015present');
+  const [selectedTimeRange, setSelectedTimeRange] = useState<string>('aug2022present');
   const [customStartDate, setCustomStartDate] = useState<Date | null>(null);
   const [customEndDate, setCustomEndDate] = useState<Date | null>(null);
   
@@ -567,11 +598,12 @@ export default function NVDARiskChart() {
 
   // Time range presets
   const timeRanges: TimeRange[] = [
-    { label: '2019-Present', startYear: 2019, description: 'Recent cycle' },
+    { label: 'Aug 2022-Present', startYear: 2022, description: 'Recent AI boom cycle (Default)' },
     { label: '2021-Present', startYear: 2021, description: 'Post-COVID cycle' },
     { label: '2020-Present', startYear: 2020, description: 'COVID era onwards' },
+    { label: '2019-Present', startYear: 2019, description: 'Recent cycle' },
     { label: '2018-Present', startYear: 2018, description: 'Post-crypto boom' },
-    { label: '2015-Present', startYear: 2015, description: 'Full modern era (Default)' },
+    { label: '2015-Present', startYear: 2015, description: 'Full modern era' },
     { label: 'All Data', startYear: 1999, description: 'Complete history since 1999 inception' },
     { label: 'Custom Range', startYear: 0, description: 'Select your own dates' }
   ];
@@ -796,7 +828,12 @@ export default function NVDARiskChart() {
       );
       
       if (selectedRange && selectedRange.startYear > 0) {
-        startDate = new Date(selectedRange.startYear, 0, 1);
+        // Special handling for Aug 2022-Present
+        if (selectedRange.label === 'Aug 2022-Present') {
+          startDate = new Date(2022, 7, 1); // August 1, 2022 (month is 0-indexed)
+        } else {
+          startDate = new Date(selectedRange.startYear, 0, 1);
+        }
         if (selectedRange.endYear) {
           endDate = new Date(selectedRange.endYear, 11, 31);
         }
@@ -862,7 +899,7 @@ export default function NVDARiskChart() {
             if (chartRef.current) {
               chartRef.current.resetZoom();
             }
-            setSelectedTimeRange('2015present');
+            setSelectedTimeRange('aug2022present');
             break;
         }
       }
@@ -935,8 +972,8 @@ export default function NVDARiskChart() {
       const yScale = chartRef.current.scales.y;
       
       if (xScale && yScale) {
-        // Reset to show data from 2015-present (default view)
-        const startDate = new Date(2015, 0, 1); // January 1, 2015
+        // Reset to show data from Aug 2022-present (default view)
+        const startDate = new Date(2022, 7, 1); // August 1, 2022
         const endDate = new Date(); // Current date
         
         xScale.options.min = startDate.getTime();
@@ -1363,8 +1400,8 @@ export default function NVDARiskChart() {
         border: {
           color: 'rgba(156, 163, 175, 0.2)',
         },
-        // Show data from 2015 by default (even though backend has data since 1999)
-        min: data.length > 0 ? new Date(2015, 0, 1).getTime() : undefined,
+        // Show data from Aug 2022 by default (even though backend has data since 1999)
+        min: data.length > 0 ? new Date(2022, 7, 1).getTime() : undefined,
         max: data.length > 0 ? new Date().getTime() : undefined,
       },
       y: {
@@ -1416,25 +1453,25 @@ export default function NVDARiskChart() {
         <div className={`bg-gray-800 rounded-lg p-2 md:p-6 shadow-xl transition-all duration-500 relative mb-4 md:mb-8 ${
           isAnimating ? 'opacity-90 scale-99' : 'opacity-100 scale-100'
         }`}>
-          {/* Chart Control Buttons Overlay */}
-          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10 flex gap-2">
+          {/* Chart Control Buttons - Responsive design */}
+          <div className="absolute top-2 md:top-4 left-1/2 transform -translate-x-1/2 z-10 flex gap-1 md:gap-2">
             <button
               onClick={resetZoom}
-              className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
+              className="bg-purple-600 hover:bg-purple-700 text-white px-1.5 md:px-3 py-1 md:py-1.5 rounded text-xs md:text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
             >
-              🔍 Reset Zoom
+              🔍 <span className="hidden sm:inline">Reset</span>
             </button>
             <button
               onClick={zoomToLast12Months}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
+              className="bg-blue-600 hover:bg-blue-700 text-white px-1.5 md:px-3 py-1 md:py-1.5 rounded text-xs md:text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
             >
-              📅 Past 12 Months
+              📅 <span className="hidden sm:inline">12M</span>
             </button>
             <button
               onClick={zoomToAllTime}
-              className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
+              className="bg-green-600 hover:bg-green-700 text-white px-1.5 md:px-3 py-1 md:py-1.5 rounded text-xs md:text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
             >
-              🌐 All Time
+              🌐 <span className="hidden sm:inline">All</span>
             </button>
           </div>
           
@@ -1484,7 +1521,7 @@ export default function NVDARiskChart() {
                 <li><strong>Mobile:</strong> Pinch to zoom, drag to select time ranges</li>
                 <li><strong>Mouse wheel:</strong> Zoom in/out at cursor position (desktop)</li>
                 <li><strong>Pan:</strong> Ctrl+Drag (desktop) or drag when zoomed (mobile)</li>
-                <li><strong>Reset:</strong> "Reset Zoom" button returns to 2015-present view</li>
+                <li><strong>Reset:</strong> "Reset Zoom" button returns to Aug 2022-present view</li>
               </ul>
             </div>
             <div>
@@ -1492,7 +1529,7 @@ export default function NVDARiskChart() {
               <ul className="list-disc list-inside space-y-1 text-gray-400">
                 <li><strong>Ctrl+1-4:</strong> Quick timeframe selection</li>
                 <li><strong>Ctrl+L:</strong> Toggle linear/log scale</li>
-                <li><strong>Ctrl+R:</strong> Reset zoom to 2015-present view</li>
+                <li><strong>Ctrl+R:</strong> Reset zoom to Aug 2022-present view</li>
               </ul>
             </div>
           </div>
@@ -1681,7 +1718,7 @@ export default function NVDARiskChart() {
             <li>• <strong>Pinch Zoom:</strong> Pinch to zoom in/out on chart for fine control</li>
             <li>• <strong>Time Selection:</strong> Use timeframe preset buttons for date ranges</li>
             <li>• <strong>Pan Around:</strong> Drag to move around when zoomed in</li>
-            <li>• <strong>Reset View:</strong> Use "Reset Zoom" button to return to 2015-present</li>
+            <li>• <strong>Reset View:</strong> Use "Reset Zoom" button to return to Aug 2022-present</li>
           </ul>
           <div className="mt-2 text-xs text-yellow-300">
             📱 <strong>Pro Tip:</strong> Drag across the chart to select specific time periods!
