@@ -1,31 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
-    const apiKey = process.env.FINNHUB_API_KEY || 'c58gpgaad3ifmjb47cl0';
+    console.log('Test API endpoint hit');
     
-    // Test with a simple quote endpoint first
-    const response = await axios.get(
-      `https://finnhub.io/api/v1/quote?symbol=NVDA&token=${apiKey}`
-    );
+    // Test if environment variables are accessible
+    const hasApiKey = process.env.FINNHUB_API_KEY ? 'Yes' : 'No';
     
-    console.log('Finnhub API Response:', response.data);
+    // Test basic fetch capability
+    const testResponse = await fetch('https://httpbin.org/json');
+    
+    if (!testResponse.ok) {
+      throw new Error(`HTTP error! status: ${testResponse.status}`);
+    }
+    
+    const testData: { slideshow?: { title?: string } } = await testResponse.json();
     
     return NextResponse.json({
       success: true,
-      data: response.data,
-      message: 'Finnhub API is working!'
+      message: 'API is working',
+      environment: {
+        hasApiKey,
+        nodeEnv: process.env.NODE_ENV,
+      },
+      testFetch: testData?.slideshow?.title || 'Test completed'
     });
     
-  } catch (error: any) {
-    console.error('Finnhub API Error:', error.response?.data || error.message);
-    
-    return NextResponse.json({
-      success: false,
-      error: error.response?.data || error.message,
-      status: error.response?.status || 500,
-      message: 'Finnhub API test failed'
-    }, { status: 500 });
+  } catch (error: unknown) {
+    console.error('Test API error:', error);
+    return NextResponse.json(
+      { 
+        success: false,
+        error: 'Test API failed',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    );
   }
 } 

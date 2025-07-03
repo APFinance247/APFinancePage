@@ -128,7 +128,6 @@ async function loadHistoricalDataFromCSV(): Promise<{date: Date, price: number, 
     const csvText = await response.text();
     
     const lines = csvText.split('\n').filter(line => line.trim() && !line.startsWith('#'));
-    const header = lines[0];
     const dataLines = lines.slice(1);
     
     const historicalData = dataLines.map(line => {
@@ -463,7 +462,7 @@ const RiskAlgorithmExplanation = ({ riskStats }: { riskStats?: RiskStats }) => {
             <li>• <strong>EMA Responsiveness:</strong> Faster reaction to trend changes</li>
             <li>• <strong>Deep Value Preserved:</strong> SMA touches still show as purple</li>
             <li>• <strong>Trend Aware:</strong> Considers short and long-term alignment</li>
-            <li>• <strong>Growth Stock Optimized:</strong> Perfect for NVDA's dynamics</li>
+            <li>• <strong>Growth Stock Optimized:</strong> Perfect for NVDA&apos;s dynamics</li>
           </ul>
         </div>
       </div>
