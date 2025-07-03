@@ -88,6 +88,99 @@ const getRiskColor = (risk: number): string => {
   return `rgb(${r}, ${g}, ${b})`;
 };
 
+// Calculate Simple Moving Average
+function calculateSMA(data: number[], period: number): number[] {
+  const sma: number[] = [];
+  for (let i = 0; i < data.length; i++) {
+    if (i < period - 1) {
+      sma.push(0);
+    } else {
+      const sum = data.slice(i - period + 1, i + 1).reduce((acc, val) => acc + val, 0);
+      sma.push(sum / period);
+    }
+  }
+  return sma;
+}
+
+// Calculate Exponential Moving Average
+function calculateEMA(data: number[], period: number): number[] {
+  const ema: number[] = [];
+  const multiplier = 2 / (period + 1);
+  
+  for (let i = 0; i < data.length; i++) {
+    if (i === 0) {
+      ema.push(data[i]);
+    } else {
+      ema.push((data[i] * multiplier) + (ema[i - 1] * (1 - multiplier)));
+    }
+  }
+  return ema;
+}
+
+// Load historical data from CSV file
+async function loadHistoricalDataFromCSV(): Promise<{date: Date, price: number, timestamp: number}[]> {
+  try {
+    const response = await fetch('/nvda-historical-data.csv');
+    const csvText = await response.text();
+    
+    const lines = csvText.split('\n').filter(line => line.trim() && !line.startsWith('#'));
+    const header = lines[0];
+    const dataLines = lines.slice(1);
+    
+    const historicalData = dataLines.map(line => {
+      const [dateStr, priceStr, timestampStr] = line.split(',');
+      return {
+        date: new Date(dateStr),
+        price: parseFloat(priceStr),
+        timestamp: parseInt(timestampStr)
+      };
+    }).filter(item => !isNaN(item.price)); // Filter out invalid data
+    
+    console.log(`Loaded ${historicalData.length} historical data points from CSV`);
+    return historicalData;
+  } catch (error) {
+    console.error('Error loading historical CSV data:', error);
+    return [];
+  }
+}
+
+// Process complete dataset with EMAs, SMAs, and risk calculation
+function processCompleteDataset(rawData: {date: Date, price: number, timestamp: number}[]): DataPoint[] {
+  if (rawData.length === 0) return [];
+  
+  // Sort by date to ensure proper order
+  const sortedData = rawData.sort((a, b) => a.timestamp - b.timestamp);
+  const prices = sortedData.map(d => d.price);
+  
+  // Calculate weekly-equivalent moving averages adjusted for daily data  
+  // Since we have ~5x more data points, multiply periods by 5 to get weekly equivalent
+  const ema8 = calculateEMA(prices, 8 * 5);    // ~8 weeks in daily data
+  const ema21 = calculateEMA(prices, 21 * 5);  // ~21 weeks in daily data  
+  const sma50 = calculateSMA(prices, 50 * 5);  // ~50 weeks in daily data
+  const sma100 = calculateSMA(prices, 100 * 5); // ~100 weeks in daily data
+  const sma200 = calculateSMA(prices, 200 * 5); // ~200 weeks in daily data
+  const sma400 = calculateSMA(prices, 400 * 5); // ~400 weeks in daily data
+  
+  // Create processed data points
+  const processedData: DataPoint[] = sortedData.map((item, index) => ({
+    date: item.date,
+    price: item.price,
+    ema8: ema8[index],
+    ema21: ema21[index],
+    sma50: sma50[index],
+    sma100: sma100[index],
+    sma200: sma200[index],
+    sma400: sma400[index],
+    risk: 5, // Will be calculated next
+    timestamp: item.timestamp,
+  }));
+  
+  // Apply EMA-focused risk algorithm
+  const dataWithRisk = calculateEMAFocusedRisk(processedData);
+  
+  return dataWithRisk;
+}
+
 // Get risk level description
 const getRiskDescription = (risk: number): { level: string; description: string; color: string } => {
   if (risk <= 2) return { 
@@ -130,6 +223,122 @@ const getRiskDescription = (risk: number): { level: string; description: string;
     description: "Top 5% of historical deviations - extreme overextension",
     color: getRiskColor(risk)
   };
+};
+
+// Calculate risk with EMA-focused approach - rare yellow, realistic purple zones
+const calculateEMAFocusedRisk = (dataPoints: DataPoint[]): DataPoint[] => {
+  const currentDate = new Date();
+  
+  return dataPoints.map((point, index) => {
+    if (point.sma50 === 0 || point.ema8 === 0 || point.ema21 === 0) return { ...point, risk: 5 }; // Default if no data
+    
+    // Calculate years from current date for time-based weighting
+    const yearsFromNow = (currentDate.getTime() - point.date.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+    const modernWeight = Math.max(0, Math.min(1, (5 - yearsFromNow) / 5)); // 1 = very recent, 0 = old data
+    
+    // Calculate deviations from key levels
+    const dev8EMA = (point.price - point.ema8) / point.ema8;
+    const dev21EMA = (point.price - point.ema21) / point.ema21;
+    const dev50SMA = (point.price - point.sma50) / point.sma50;
+    const dev100SMA = (point.price - point.sma100) / point.sma100;
+    const dev200SMA = (point.price - point.sma200) / point.sma200;
+    
+    let risk: number;
+    
+    // STEP 1: Determine base risk from EMA position (this sets the primary risk level)
+    if (dev8EMA >= 0.20) {
+      // 20%+ above 8W EMA = RARE YELLOW TERRITORY (Risk 8-10)
+      if (dev8EMA >= 0.35) {
+        risk = 9.5; // Extreme overextension
+      } else if (dev8EMA >= 0.28) {
+        risk = 9.0; // Very high overextension  
+      } else {
+        risk = 8.0; // High overextension
+      }
+    } else if (dev8EMA >= 0.08) {
+      // 8-20% above 8W EMA = ORANGE TERRITORY (Risk 6-7)
+      if (dev8EMA >= 0.15) {
+        risk = 7.0; // High risk
+      } else {
+        risk = 6.0 + (dev8EMA - 0.08) / 0.07 * 1.0; // 6.0-7.0
+      }
+    } else if (dev8EMA >= -0.05) {
+      // Near 8W EMA = MODERATE TERRITORY (Risk 5-6)
+      risk = 5.0 + (dev8EMA + 0.05) / 0.13 * 1.0; // 5.0-6.0
+    } else if (dev21EMA >= -0.08) {
+      // Near 21W EMA = MODERATE-LOW TERRITORY (Risk 3-5)
+      if (dev21EMA >= 0) {
+        risk = 4.0 + dev21EMA / 0.08 * 1.0; // 4.0-5.0
+      } else {
+        risk = 3.0 + (dev21EMA + 0.08) / 0.08 * 1.0; // 3.0-4.0
+      }
+    } else {
+      // Below 21W EMA = LOW RISK TERRITORY (Risk 1-3) - Use deep SMAs
+      const deepestDeviation = Math.min(dev50SMA, dev100SMA, dev200SMA);
+      
+      if (deepestDeviation <= -0.25) {
+        risk = 1.0; // Deep purple - extreme value
+      } else if (deepestDeviation <= -0.15) {
+        risk = 1.5; // Dark purple
+      } else if (deepestDeviation <= -0.08) {
+        risk = 2.0; // Light purple - excellent opportunity
+      } else if (dev50SMA <= -0.03) {
+        risk = 2.5; // Blue - good opportunity
+      } else {
+        risk = 3.0; // Blue-green transition
+      }
+    }
+    
+    // STEP 2: Modern time-based adjustments (lighter adjustments)
+    if (modernWeight > 0.7) {
+      // Recent data: slightly more generous on low risk, slightly stricter on high risk
+      if (risk <= 3) {
+        risk -= 0.2; // Make low risk slightly more accessible
+      } else if (risk >= 7) {
+        risk += 0.1; // Make high risk slightly stricter
+      }
+    }
+    
+    // STEP 3: Volatility adjustment (opportunities in chaos)
+    if (modernWeight > 0.3 && index > 50) {
+      const recentPrices = dataPoints.slice(Math.max(0, index - 20), index + 1).map(p => p.price);
+      const priceChanges = recentPrices.slice(1).map((price, i) => (price - recentPrices[i]) / recentPrices[i]);
+      const volatility = Math.sqrt(priceChanges.reduce((sum, change) => sum + change * change, 0) / priceChanges.length);
+      
+      // High volatility = slight risk discount (but smaller adjustment)
+      if (volatility > 0.06) { // 6%+ daily volatility
+        risk -= 0.2;
+      } else if (volatility > 0.04) { // 4%+ daily volatility
+        risk -= 0.1;
+      }
+    }
+    
+    // STEP 4: Trend consistency bonus/penalty
+    const trendAlignment = (
+      (dev8EMA > 0 ? 1 : -1) + 
+      (dev21EMA > 0 ? 1 : -1) + 
+      (dev50SMA > 0 ? 1 : -1)
+    ) / 3;
+    
+    // When all averages align, slightly adjust risk
+    if (Math.abs(trendAlignment) > 0.6) {
+      risk += trendAlignment * 0.15; // Small trend adjustment
+    }
+    
+    // STEP 5: Final bounds and smoothing
+    risk = Math.max(1, Math.min(10, risk));
+    
+    // Light smoothing to reduce noise
+    if (index > 0 && index < dataPoints.length - 1) {
+      const prevRisk = dataPoints[index - 1]?.risk || risk;
+      risk = risk * 0.8 + prevRisk * 0.2; // Light smoothing
+    }
+    
+    return {
+      ...point,
+      risk: Math.round(risk * 100) / 100
+    };
+  });
 };
 
 // Current Risk Assessment Card
@@ -181,7 +390,7 @@ const CurrentRiskAssessment = ({ currentRisk, currentPrice }: { currentRisk: num
                 className="h-full transition-all duration-500 rounded-full"
                 style={{ 
                   width: `${(currentRisk / 10) * 100}%`,
-                  background: `linear-gradient(90deg, rgb(68,1,84), rgb(59,82,139), rgb(33,145,140), rgb(94,201,98), rgb(253,231,37), rgb(255,255,0))`
+                  background: `linear-gradient(90deg, rgb(68,1,84), ${riskInfo.color})`
                 }}
               />
             </div>
@@ -200,30 +409,30 @@ const CurrentRiskAssessment = ({ currentRisk, currentPrice }: { currentRisk: num
 const RiskAlgorithmExplanation = ({ riskStats }: { riskStats?: RiskStats }) => {
   return (
     <div className="mb-6 bg-gray-800 rounded-lg p-6 shadow-lg">
-      <h3 className="text-lg font-semibold mb-4 text-white">🔬 Pure Technical Risk Algorithm v4.0 - Real-Time</h3>
+      <h3 className="text-lg font-semibold mb-4 text-white">🔬 EMA-Focused Risk Algorithm - Rare Yellow, Realistic Entry Zones</h3>
       
       <div className="grid md:grid-cols-2 gap-6">
         <div>
-          <h4 className="text-md font-semibold text-blue-400 mb-2">Pure Technical Methodology:</h4>
+          <h4 className="text-md font-semibold text-blue-400 mb-2">EMA-Focused Risk Levels:</h4>
           <ul className="text-sm text-gray-300 space-y-1">
-            <li>• <strong>Moving Average Deviations:</strong> 50/200-week SMA distance analysis</li>
-            <li>• <strong>Rolling Percentiles:</strong> 3-year context for all indicators</li>
-            <li>• <strong>Elevation Duration:</strong> Time above key thresholds</li>
-            <li>• <strong>Peak Proximity:</strong> Distance from 52-week highs</li>
-            <li>• <strong>Volatility Intelligence:</strong> Crash vs bubble volatility patterns</li>
-            <li>• <strong>Market Regime:</strong> 52-week momentum analysis</li>
+            <li>• <strong>Yellow Risk (8-10):</strong> 20%+ above 8W EMA = RARE overextension</li>
+            <li>• <strong>Orange Risk (6-7):</strong> 8-20% above 8W EMA = elevated</li>
+            <li>• <strong>Green Risk (5-6):</strong> Near 8W EMA = moderate</li>
+            <li>• <strong>Blue Risk (3-5):</strong> Around 21W EMA = good opportunity</li>
+            <li>• <strong>Purple Risk (1-3):</strong> Below 50W-200W SMAs = excellent value</li>
+            <li>• <strong>Smart Volatility:</strong> High volatility = opportunity discount</li>
           </ul>
         </div>
         
         <div>
-          <h4 className="text-md font-semibold text-green-400 mb-2">v4.0 Real-Time Features:</h4>
+          <h4 className="text-md font-semibold text-green-400 mb-2">Why EMA-Focused Works:</h4>
           <ul className="text-sm text-gray-300 space-y-1">
-            <li>• <strong>No Hard-Coding:</strong> Zero retrospective adjustments</li>
-            <li>• <strong>Backtest Accurate:</strong> Would work in real-time historically</li>
-            <li>• <strong>Bubble Detection:</strong> Extreme elevation + duration signals</li>
-            <li>• <strong>Crash Recognition:</strong> High volatility below moving averages</li>
-            <li>• <strong>Dynamic Scaling:</strong> Risk 1.0 for deep value, 8+ for bubbles</li>
-            <li>• <strong>Multi-Factor:</strong> 8 independent technical indicators</li>
+            <li>• <strong>Realistic Entries:</strong> 21W EMA area = solid buying opportunity</li>
+            <li>• <strong>Rare Yellow:</strong> Only extreme overextension above 8W EMA</li>
+            <li>• <strong>EMA Responsiveness:</strong> Faster reaction to trend changes</li>
+            <li>• <strong>Deep Value Preserved:</strong> SMA touches still show as purple</li>
+            <li>• <strong>Trend Aware:</strong> Considers short and long-term alignment</li>
+            <li>• <strong>Growth Stock Optimized:</strong> Perfect for NVDA's dynamics</li>
           </ul>
         </div>
       </div>
@@ -256,10 +465,9 @@ const RiskAlgorithmExplanation = ({ riskStats }: { riskStats?: RiskStats }) => {
       )}
       
       <div className="mt-4 p-3 bg-gradient-to-r from-gray-700 to-gray-600 rounded text-xs text-gray-300">
-        <strong>🎯 v4.0 Philosophy:</strong> This algorithm uses ONLY technical indicators that would have been 
-        available in real-time during backtesting. No hard-coded period adjustments or retrospective knowledge. 
-        It identifies bubbles through extreme elevation + duration and distinguishes crashes from bubbles using 
-        volatility patterns relative to moving averages. True backtest accuracy.
+        <strong>🎯 EMA Philosophy:</strong> This algorithm makes yellow rare by requiring 20%+ overextension above 
+        the 8-week EMA. Around 21W EMA = good opportunity (blue), around 8W EMA = moderate risk (green), 
+        deep SMA touches = excellent value (purple). Designed for realistic modern market entry and exit signals.
       </div>
     </div>
   );
@@ -341,7 +549,7 @@ export default function NVDARiskChart() {
   const [showMovingAverages, setShowMovingAverages] = useState(false);
   
   // New state for time range control
-  const [selectedTimeRange, setSelectedTimeRange] = useState<string>('2019present');
+  const [selectedTimeRange, setSelectedTimeRange] = useState<string>('2015present');
   const [customStartDate, setCustomStartDate] = useState<Date | null>(null);
   const [customEndDate, setCustomEndDate] = useState<Date | null>(null);
   
@@ -359,12 +567,12 @@ export default function NVDARiskChart() {
 
   // Time range presets
   const timeRanges: TimeRange[] = [
-    { label: '2019-Present', startYear: 2019, description: 'Recent cycle (Default)' },
+    { label: '2019-Present', startYear: 2019, description: 'Recent cycle' },
     { label: '2021-Present', startYear: 2021, description: 'Post-COVID cycle' },
     { label: '2020-Present', startYear: 2020, description: 'COVID era onwards' },
     { label: '2018-Present', startYear: 2018, description: 'Post-crypto boom' },
-    { label: '2015-Present', startYear: 2015, description: 'Full modern era' },
-    { label: 'All Data', startYear: 2015, description: 'Complete history from 2015' },
+    { label: '2015-Present', startYear: 2015, description: 'Full modern era (Default)' },
+    { label: 'All Data', startYear: 1999, description: 'Complete history since 1999 inception' },
     { label: 'Custom Range', startYear: 0, description: 'Select your own dates' }
   ];
 
@@ -418,38 +626,151 @@ export default function NVDARiskChart() {
         setLoading(true);
         setError(null);
         
-        console.log('Attempting to fetch data from Yahoo Finance...');
-        let response = await fetch('/api/nvda-data-yahoo');
+        console.log('Loading historical data from CSV...');
         
-        if (!response.ok) {
-          console.log('Yahoo Finance failed, trying Finnhub...');
-          response = await fetch('/api/nvda-data');
+        // STEP 1: Load historical data from CSV file
+        const historicalData = await loadHistoricalDataFromCSV();
+        
+        if (historicalData.length === 0) {
+          console.log('No CSV data found, falling back to full API call...');
+          // Fallback to original API if CSV is empty
+          let response = await fetch('/api/nvda-data-yahoo');
+          
+          if (!response.ok) {
+            console.log('Yahoo Finance failed, trying Finnhub...');
+            response = await fetch('/api/nvda-data');
+          }
+          
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+          }
+          
+          const result: APIResponse = await response.json();
+          
+          const processedData = result.data.map(item => ({
+            ...item,
+            date: new Date(item.date),
+            timestamp: new Date(item.date).getTime(),
+          }));
+          
+          const dataWithNewRisk = calculateEMAFocusedRisk(processedData);
+          const currentRiskFromData = dataWithNewRisk.length > 0 ? dataWithNewRisk[dataWithNewRisk.length - 1].risk : result.currentRisk;
+          
+          setData(dataWithNewRisk);
+          setCurrentPrice(result.currentPrice);
+          setCurrentRisk(currentRiskFromData);
+          setDataSource(`${result.source || 'API'} (Full Fallback)`);
+          setRiskStats(result.riskStats);
+          
+          console.log(`Fallback: loaded ${dataWithNewRisk.length} data points from ${result.source || 'API'}`);
+          return;
         }
         
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        console.log(`Loaded ${historicalData.length} historical data points from CSV`);
+        
+        // STEP 2: Fetch only the latest data point from API
+        console.log('Fetching latest data point from API...');
+        let latestResponse;
+        try {
+          latestResponse = await fetch('/api/nvda-latest');
+        } catch (latestError) {
+          console.warn('Latest API endpoint failed, using historical data only:', latestError);
+          // Process historical data only if latest API fails
+          const processedHistoricalData = processCompleteDataset(historicalData);
+          const currentPrice = processedHistoricalData.length > 0 ? processedHistoricalData[processedHistoricalData.length - 1].price : 0;
+          const currentRisk = processedHistoricalData.length > 0 ? processedHistoricalData[processedHistoricalData.length - 1].risk : 5;
+          
+          setData(processedHistoricalData);
+          setCurrentPrice(currentPrice);
+          setCurrentRisk(currentRisk);
+          setDataSource('CSV Historical Only (Latest API Failed)');
+          
+          console.log(`Historical only: processed ${processedHistoricalData.length} data points`);
+          return;
         }
         
-        const result: APIResponse = await response.json();
+        // STEP 3: Combine historical + latest data
+        let combinedData = [...historicalData];
+        let currentPrice = 0;
+        let dataSource = 'CSV Historical';
         
-        const processedData = result.data.map(item => ({
-          ...item,
-          date: new Date(item.date),
-          timestamp: new Date(item.date).getTime(),
-        }));
+        if (latestResponse.ok) {
+          const latestResult = await latestResponse.json();
+          const latestDate = new Date(latestResult.dataDate);
+          const latestTimestamp = latestDate.getTime();
+          
+          // Check if we already have this date in historical data
+          const existingIndex = historicalData.findIndex(item => 
+            Math.abs(item.timestamp - latestTimestamp) < 24 * 60 * 60 * 1000 // Within 24 hours
+          );
+          
+          if (existingIndex >= 0) {
+            // Update existing data point with latest price
+            combinedData[existingIndex] = {
+              date: latestDate,
+              price: latestResult.currentPrice,
+              timestamp: latestTimestamp
+            };
+            console.log('Updated existing data point with latest price');
+          } else {
+            // Add new latest data point
+            combinedData.push({
+              date: latestDate,
+              price: latestResult.currentPrice,
+              timestamp: latestTimestamp
+            });
+            console.log('Added new latest data point');
+          }
+          
+          currentPrice = latestResult.currentPrice;
+          dataSource = `CSV Historical + ${latestResult.source}`;
+        } else {
+          console.warn('Latest API failed, using historical data only');
+          // Use the most recent historical price as current
+          if (historicalData.length > 0) {
+            currentPrice = historicalData[historicalData.length - 1].price;
+          }
+          dataSource = 'CSV Historical Only (Latest API Failed)';
+        }
         
+        // STEP 4: Process complete dataset (calculate EMAs, SMAs, risk)
+        console.log('Processing complete dataset with EMAs/SMAs and risk calculation...');
+        const processedData = processCompleteDataset(combinedData);
+        
+        // STEP 5: Calculate current risk from processed data
+        const currentRiskFromData = processedData.length > 0 ? processedData[processedData.length - 1].risk : 5;
+        
+        // STEP 6: Calculate risk statistics
+        const risks = processedData.map(d => d.risk);
+        const riskStats: RiskStats = {
+          min: Math.min(...risks),
+          max: Math.max(...risks),
+          avg: risks.reduce((sum, r) => sum + r, 0) / risks.length,
+          distribution: {
+            risk1to3: risks.filter(r => r >= 1 && r <= 3).length,
+            risk4to6: risks.filter(r => r > 3 && r <= 6).length,
+            risk7to8: risks.filter(r => r > 6 && r <= 8).length,
+            risk9to10: risks.filter(r => r > 8 && r <= 10).length,
+          }
+        };
+        
+        // STEP 7: Set state with processed data
         setData(processedData);
-        setCurrentPrice(result.currentPrice);
-        setCurrentRisk(result.currentRisk);
-        setDataSource(result.source || 'Unknown');
-        setRiskStats(result.riskStats);
+        setCurrentPrice(currentPrice);
+        setCurrentRisk(currentRiskFromData);
+        setDataSource(dataSource);
+        setRiskStats(riskStats);
         
-        console.log(`Successfully loaded ${processedData.length} data points from ${result.source || 'API'}`);
+        console.log(`✅ Successfully processed ${processedData.length} data points`);
+        console.log(`📊 Data source: ${dataSource}`);
+        console.log(`💰 Current price: $${currentPrice.toFixed(2)}`);
+        console.log(`⚠️ Current risk: ${currentRiskFromData.toFixed(2)}`);
+        console.log(`📈 Risk range: ${riskStats.min.toFixed(2)} - ${riskStats.max.toFixed(2)} (avg: ${riskStats.avg.toFixed(2)})`);
         
       } catch (err) {
-        console.error('Error fetching data:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred while fetching data');
+        console.error('Error in fetchData:', err);
+        setError(err instanceof Error ? err.message : 'An error occurred while loading data');
       } finally {
         setLoading(false);
       }
@@ -541,7 +862,7 @@ export default function NVDARiskChart() {
             if (chartRef.current) {
               chartRef.current.resetZoom();
             }
-            setSelectedTimeRange('2019present');
+            setSelectedTimeRange('2015present');
             break;
         }
       }
@@ -593,15 +914,15 @@ export default function NVDARiskChart() {
   // Export function
   const exportData = () => {
     const csvContent = "data:text/csv;charset=utf-8," 
-      + "Date,Price,Risk,8-Week EMA,21-Week EMA,200-Week SMA\n"
+      + "Date,Price,Risk,8-Week EMA,21-Week EMA,50-Week SMA\n"
       + data.map(row => 
-          `${format(row.date, 'yyyy-MM-dd')},${row.price},${row.risk},${row.ema8},${row.ema21},${row.sma200}`
+          `${format(row.date, 'yyyy-MM-dd')},${row.price},${row.risk},${row.ema8},${row.ema21},${row.sma50}`
         ).join("\n");
     
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `nvda-daily-risk-data-complete.csv`);
+    link.setAttribute("download", `nvda-daily-risk-data-ema-focused.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -614,8 +935,8 @@ export default function NVDARiskChart() {
       const yScale = chartRef.current.scales.y;
       
       if (xScale && yScale) {
-        // Set to 2019-present timeframe (matches initial load)
-        const startDate = new Date(2019, 0, 1); // Jan 1, 2019
+        // Reset to show data from 2015-present (default view)
+        const startDate = new Date(2015, 0, 1); // January 1, 2015
         const endDate = new Date(); // Current date
         
         xScale.options.min = startDate.getTime();
@@ -652,6 +973,35 @@ export default function NVDARiskChart() {
         
         xScale.options.min = startDate.getTime();
         xScale.options.max = endDate.getTime();
+        yScale.options.min = undefined; // Auto-fit to data
+        yScale.options.max = undefined; // Auto-fit to data
+        
+        // Clear any active hover states
+        chartRef.current.setActiveElements([]);
+        
+        // Force a proper re-render with animation
+        chartRef.current.update();
+        
+        // Ensure data points are properly rendered with a second update
+        setTimeout(() => {
+          if (chartRef.current) {
+            chartRef.current.update('none');
+          }
+        }, 50);
+      }
+    }
+  };
+
+  // Zoom to all time function
+  const zoomToAllTime = () => {
+    if (chartRef.current) {
+      const xScale = chartRef.current.scales.x;
+      const yScale = chartRef.current.scales.y;
+      
+      if (xScale && yScale) {
+        // Set to show all historical data from 1999
+        xScale.options.min = undefined; // Show all data from beginning
+        xScale.options.max = undefined; // Show all data to end
         yScale.options.min = undefined; // Auto-fit to data
         yScale.options.max = undefined; // Auto-fit to data
         
@@ -796,6 +1146,8 @@ export default function NVDARiskChart() {
           date: point.date,
           ema8: point.ema8,
           ema21: point.ema21,
+          sma50: point.sma50,
+          sma100: point.sma100,
           sma200: point.sma200,
         })),
         backgroundColor: data.map(point => getRiskColor(point.risk)),
@@ -807,40 +1159,57 @@ export default function NVDARiskChart() {
         tension: 0.1,
         fill: false,
         borderWidth: 0,
-        order: 1,
+        order: 0,
       },
-      // EMA8 line (if enabled) - as scatter dataset with lines
+      // 8-Week EMA line (if enabled) - PRIMARY HIGH RISK REFERENCE
       ...(showMovingAverages ? [{
-        label: '8-Week EMA',
+        label: '8-Week EMA (High Risk Ref)',
         data: data.map(point => ({
           x: point.timestamp,
           y: point.ema8,
         })),
         backgroundColor: 'transparent',
-        borderColor: 'rgba(59, 130, 246, 0.8)',
+        borderColor: 'rgba(239, 68, 68, 1.0)', // Bright red - primary high risk reference
         pointRadius: 0,
         pointHoverRadius: 2,
         showLine: true,
         tension: 0.1,
         fill: false,
-        borderWidth: 2,
-        order: 2,
+        borderWidth: 4, // Thickest - most important for high risk detection
+        order: 1,
       }] : []),
-      // EMA21 line (if enabled) - as scatter dataset with lines
+      // 21-Week EMA line (if enabled) - PRIMARY MODERATE RISK REFERENCE
       ...(showMovingAverages ? [{
-        label: '21-Week EMA', 
+        label: '21-Week EMA (Entry Zone)',
         data: data.map(point => ({
           x: point.timestamp,
           y: point.ema21,
         })),
         backgroundColor: 'transparent',
-        borderColor: 'rgba(234, 179, 8, 0.8)',
+        borderColor: 'rgba(59, 130, 246, 1.0)', // Bright blue - key entry zone
         pointRadius: 0,
         pointHoverRadius: 2,
         showLine: true,
         tension: 0.1,
         fill: false,
-        borderWidth: 2,
+        borderWidth: 3, // Second thickest - key entry reference
+        order: 2,
+      }] : []),
+      // SMA50 line (if enabled) - SECONDARY REFERENCE for low risk
+      ...(showMovingAverages ? [{
+        label: '50-Week SMA (Support)',
+        data: data.map(point => ({
+          x: point.timestamp,
+          y: point.sma50,
+        })),
+        backgroundColor: 'transparent',
+        borderColor: 'rgba(34, 197, 94, 0.8)', // Green for support level
+        pointRadius: 0,
+        pointHoverRadius: 2,
+        showLine: true,
+        tension: 0.1,
+        fill: false,
+        borderWidth: 2, // Standard thickness
         order: 3,
       }] : []),
       // SMA200 line (if enabled) - as scatter dataset with lines
@@ -851,14 +1220,31 @@ export default function NVDARiskChart() {
           y: point.sma200,
         })),
         backgroundColor: 'transparent',
-        borderColor: 'rgba(239, 68, 68, 0.8)',
+        borderColor: 'rgba(156, 163, 175, 0.6)', // Gray - background reference
         pointRadius: 0,
         pointHoverRadius: 2,
         showLine: true,
         tension: 0.1,
         fill: false,
-        borderWidth: 2,
+        borderWidth: 1, // Thinnest - background reference
         order: 4,
+      }] : []),
+      // SMA100 line (if enabled) - as scatter dataset with lines  
+      ...(showMovingAverages ? [{
+        label: '100-Week SMA (Deep Support)',
+        data: data.map(point => ({
+          x: point.timestamp,
+          y: point.sma100,
+        })),
+        backgroundColor: 'transparent',
+        borderColor: 'rgba(168, 85, 247, 0.6)', // Faded purple - deep support
+        pointRadius: 0,
+        pointHoverRadius: 2,
+        showLine: true,
+        tension: 0.1,
+        fill: false,
+        borderWidth: 2, // Standard thickness
+        order: 5,
       }] : []),
     ],
   };
@@ -901,9 +1287,9 @@ export default function NVDARiskChart() {
             return [
               `Price: $${dataPoint.y.toFixed(2)}`,
               `Risk Level: ${dataPoint.risk.toFixed(2)}`,
-              `8-Week EMA: $${dataPoint.ema8.toFixed(2)}`,
-              `21-Week EMA: $${dataPoint.ema21.toFixed(2)}`,
-              `200-Week SMA: $${dataPoint.sma200.toFixed(2)}`,
+              `8-Week EMA: $${dataPoint.ema8?.toFixed(2) || 'N/A'}`,
+              `21-Week EMA: $${dataPoint.ema21?.toFixed(2) || 'N/A'}`,
+              `50-Week SMA: $${dataPoint.sma50?.toFixed(2) || 'N/A'}`,
             ];
           },
         },
@@ -977,8 +1363,8 @@ export default function NVDARiskChart() {
         border: {
           color: 'rgba(156, 163, 175, 0.2)',
         },
-        // Set initial zoom to 2019-present by default
-        min: data.length > 0 ? new Date(2019, 0, 1).getTime() : undefined,
+        // Show data from 2015 by default (even though backend has data since 1999)
+        min: data.length > 0 ? new Date(2015, 0, 1).getTime() : undefined,
         max: data.length > 0 ? new Date().getTime() : undefined,
       },
       y: {
@@ -1044,6 +1430,12 @@ export default function NVDARiskChart() {
             >
               📅 Past 12 Months
             </button>
+            <button
+              onClick={zoomToAllTime}
+              className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
+            >
+              🌐 All Time
+            </button>
           </div>
           
           <div style={{ height: `${chartHeight}px` }}>
@@ -1092,7 +1484,7 @@ export default function NVDARiskChart() {
                 <li><strong>Mobile:</strong> Pinch to zoom, drag to select time ranges</li>
                 <li><strong>Mouse wheel:</strong> Zoom in/out at cursor position (desktop)</li>
                 <li><strong>Pan:</strong> Ctrl+Drag (desktop) or drag when zoomed (mobile)</li>
-                <li><strong>Reset:</strong> "Reset Zoom" button returns to 2019-present view</li>
+                <li><strong>Reset:</strong> "Reset Zoom" button returns to 2015-present view</li>
               </ul>
             </div>
             <div>
@@ -1100,7 +1492,7 @@ export default function NVDARiskChart() {
               <ul className="list-disc list-inside space-y-1 text-gray-400">
                 <li><strong>Ctrl+1-4:</strong> Quick timeframe selection</li>
                 <li><strong>Ctrl+L:</strong> Toggle linear/log scale</li>
-                <li><strong>Ctrl+R:</strong> Reset zoom to 2019-present view</li>
+                <li><strong>Ctrl+R:</strong> Reset zoom to 2015-present view</li>
               </ul>
             </div>
           </div>
@@ -1217,17 +1609,17 @@ export default function NVDARiskChart() {
                     : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                 }`}
               >
-                Show EMAs
+                Show MA Lines
               </button>
             </div>
             
             {/* Keyboard shortcuts hint */}
             <div className="mt-2 text-xs text-gray-400 transition-opacity duration-300">
               <span className="hidden md:inline">
-                💡 Shortcuts: Ctrl+1-4 (timeframes), Ctrl+L (scale), Ctrl+R (reset zoom) • Show EMAs for trend context when zoomed
+                💡 Shortcuts: Ctrl+1-4 (timeframes), Ctrl+L (scale), Ctrl+R (reset zoom) • Show MA Lines for trend context when zoomed
               </span>
               <span className="md:hidden">
-                💡 Use "Show EMAs" to see trend lines when zoomed in • Pinch to zoom, Ctrl+Drag to pan
+                💡 Use "Show MA Lines" to see trend lines when zoomed in • Pinch to zoom, Ctrl+Drag to pan
               </span>
             </div>
           </div>
@@ -1289,7 +1681,7 @@ export default function NVDARiskChart() {
             <li>• <strong>Pinch Zoom:</strong> Pinch to zoom in/out on chart for fine control</li>
             <li>• <strong>Time Selection:</strong> Use timeframe preset buttons for date ranges</li>
             <li>• <strong>Pan Around:</strong> Drag to move around when zoomed in</li>
-            <li>• <strong>Reset View:</strong> Use "Reset Zoom" button to return to 2019-present</li>
+            <li>• <strong>Reset View:</strong> Use "Reset Zoom" button to return to 2015-present</li>
           </ul>
           <div className="mt-2 text-xs text-yellow-300">
             📱 <strong>Pro Tip:</strong> Drag across the chart to select specific time periods!

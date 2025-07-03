@@ -358,10 +358,9 @@ function calculateEnhancedRisk(
 
 export async function GET(request: NextRequest) {
   try {
-    // Calculate date range (about 10 years of daily data)
+    // Calculate date range - fetch data since NVDA's inception (1999)
     const endDate = new Date();
-    const startDate = new Date();
-    startDate.setFullYear(endDate.getFullYear() - 10);
+    const startDate = new Date(1999, 0, 1); // January 1, 1999 (NVDA IPO)
     
     const period1 = Math.floor(startDate.getTime() / 1000);
     const period2 = Math.floor(endDate.getTime() / 1000);

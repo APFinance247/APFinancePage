@@ -91,10 +91,9 @@ export async function GET(request: NextRequest) {
   try {
     const apiKey = process.env.FINNHUB_API_KEY || 'c58gpgaad3ifmjb47cl0';
     
-    // Calculate date range (about 10 years of weekly data)
+    // Calculate date range - fetch data since NVDA's inception (1999)
     const endDate = new Date();
-    const startDate = new Date();
-    startDate.setFullYear(endDate.getFullYear() - 10);
+    const startDate = new Date(1999, 0, 1); // January 1, 1999 (NVDA IPO)
     
     const end = Math.floor(endDate.getTime() / 1000);
     const start = Math.floor(startDate.getTime() / 1000);
