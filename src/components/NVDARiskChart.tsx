@@ -121,25 +121,44 @@ function calculateEMA(data: number[], period: number): number[] {
   return ema;
 }
 
-// Load historical data from CSV file
-async function loadHistoricalDataFromCSV(): Promise<{date: Date, price: number, timestamp: number}[]> {
+// Load historical data from CSV file with pre-calculated risk levels
+async function loadHistoricalDataFromCSV(): Promise<DataPoint[]> {
   try {
     const response = await fetch('/nvda-historical-data.csv');
     const csvText = await response.text();
     
     const lines = csvText.split('\n').filter(line => line.trim() && !line.startsWith('#'));
-    const dataLines = lines.slice(1);
+    const dataLines = lines.slice(1); // Skip header
     
     const historicalData = dataLines.map(line => {
-      const [dateStr, priceStr, timestampStr] = line.split(',');
+      const [dateStr, priceStr, timestampStr, ema8Str, ema21Str, sma50Str, sma100Str, sma200Str, sma400Str, riskStr] = line.split(',');
+      
+      // Parse values, providing defaults for missing or invalid data
+      const price = parseFloat(priceStr) || 0;
+      const timestamp = parseInt(timestampStr) || 0;
+      const ema8 = parseFloat(ema8Str) || 0;
+      const ema21 = parseFloat(ema21Str) || 0;
+      const sma50 = parseFloat(sma50Str) || 0;
+      const sma100 = parseFloat(sma100Str) || 0;
+      const sma200 = parseFloat(sma200Str) || 0;
+      const sma400 = parseFloat(sma400Str) || 0;
+      const risk = parseFloat(riskStr) || 5;
+      
       return {
         date: new Date(dateStr),
-        price: parseFloat(priceStr),
-        timestamp: parseInt(timestampStr)
+        price,
+        timestamp,
+        ema8,
+        ema21,
+        sma50,
+        sma100,
+        sma200,
+        sma400,
+        risk
       };
-    }).filter(item => !isNaN(item.price)); // Filter out invalid data
+    }).filter(item => !isNaN(item.price) && item.price > 0); // Filter out invalid data
     
-    console.log(`Loaded ${historicalData.length} historical data points from CSV`);
+    console.log(`✅ Loaded ${historicalData.length} pre-calculated data points from CSV`);
     return historicalData;
   } catch (error) {
     console.error('Error loading historical CSV data:', error);
@@ -147,7 +166,70 @@ async function loadHistoricalDataFromCSV(): Promise<{date: Date, price: number, 
   }
 }
 
-// Process complete dataset with EMAs, SMAs, and risk calculation
+// Process dataset efficiently - only calculate EMAs/SMAs/risk for new data points
+function processOptimizedDataset(data: DataPoint[]): DataPoint[] {
+  if (data.length === 0) return [];
+  
+  // Sort by date to ensure proper order
+  const sortedData = data.sort((a, b) => a.timestamp - b.timestamp);
+  
+  // Find the last point that needs calculation (has EMAs/SMAs/risk = 0 or undefined)
+  let lastCalculatedIndex = -1;
+  for (let i = sortedData.length - 1; i >= 0; i--) {
+    if (sortedData[i].ema8 > 0 && sortedData[i].ema21 > 0 && sortedData[i].risk > 0) {
+      lastCalculatedIndex = i;
+      break;
+    }
+  }
+  
+  // If all data is pre-calculated, return as-is
+  if (lastCalculatedIndex === sortedData.length - 1) {
+    console.log('✅ All data pre-calculated, no processing needed');
+    return sortedData;
+  }
+  
+  // Only calculate for points after the last calculated index
+  const pointsToCalculate = sortedData.length - lastCalculatedIndex - 1;
+  console.log(`⚡ Calculating EMAs/SMAs/risk for ${pointsToCalculate} new data points`);
+  
+  // Extract prices for moving average calculations
+  const prices = sortedData.map(d => d.price);
+  
+  // Calculate moving averages for the entire dataset (we need full history for accuracy)
+  const ema8 = calculateEMA(prices, 8 * 5);    // ~8 weeks in daily data
+  const ema21 = calculateEMA(prices, 21 * 5);  // ~21 weeks in daily data  
+  const sma50 = calculateSMA(prices, 50 * 5);  // ~50 weeks in daily data
+  const sma100 = calculateSMA(prices, 100 * 5); // ~100 weeks in daily data
+  const sma200 = calculateSMA(prices, 200 * 5); // ~200 weeks in daily data
+  const sma400 = calculateSMA(prices, 400 * 5); // ~400 weeks in daily data
+  
+  // Update only the new/changed data points
+  const updatedData = sortedData.map((point, index) => {
+    if (index <= lastCalculatedIndex) {
+      // Keep pre-calculated values
+      return point;
+    } else {
+      // Calculate new values
+      return {
+        ...point,
+        ema8: ema8[index],
+        ema21: ema21[index],
+        sma50: sma50[index],
+        sma100: sma100[index],
+        sma200: sma200[index],
+        sma400: sma400[index],
+        risk: 5, // Will be calculated next
+      };
+    }
+  });
+  
+  // Calculate risk for the entire dataset (risk calculation needs full context)
+  const dataWithRisk = calculateEMAFocusedRisk(updatedData);
+  
+  return dataWithRisk;
+}
+
+// Process complete dataset with EMAs, SMAs, and risk calculation (fallback for non-CSV data)
 function processCompleteDataset(rawData: {date: Date, price: number, timestamp: number}[]): DataPoint[] {
   if (rawData.length === 0) return [];
   
@@ -708,31 +790,36 @@ export default function NVDARiskChart() {
         
         // STEP 2: Fetch only the latest data point from API
         console.log('Fetching latest data point from API...');
-        let latestResponse;
+        let latestResponse: Response | undefined;
+        let latestApiSuccess = false;
+        
         try {
           latestResponse = await fetch('/api/nvda-latest');
+          latestApiSuccess = latestResponse.ok;
         } catch (latestError) {
           console.warn('Latest API endpoint failed, using historical data only:', latestError);
           // Process historical data only if latest API fails
-          const processedHistoricalData = processCompleteDataset(historicalData);
-          const currentPrice = processedHistoricalData.length > 0 ? processedHistoricalData[processedHistoricalData.length - 1].price : 0;
-          const currentRisk = processedHistoricalData.length > 0 ? processedHistoricalData[processedHistoricalData.length - 1].risk : 5;
-          
-          setData(processedHistoricalData);
-          setCurrentPrice(currentPrice);
-          setCurrentRisk(currentRisk);
-          setDataSource('CSV Historical Only (Latest API Failed)');
-          
-          console.log(`Historical only: processed ${processedHistoricalData.length} data points`);
-          return;
+          if (historicalData.length > 0) {
+            // Historical data is already processed from CSV
+            const currentPrice = historicalData[historicalData.length - 1].price;
+            const currentRisk = historicalData[historicalData.length - 1].risk;
+            
+            setData(historicalData);
+            setCurrentPrice(currentPrice);
+            setCurrentRisk(currentRisk);
+            setDataSource('CSV Historical Only (Pre-calculated)');
+            
+            console.log(`✅ Using ${historicalData.length} pre-calculated data points from CSV`);
+            return;
+          }
         }
         
-        // STEP 3: Combine historical + latest data
-        const combinedData = [...historicalData];
+        // STEP 3: Combine historical + latest data efficiently
+        let combinedData: DataPoint[] = [...historicalData];
         let currentPrice = 0;
-        let dataSource = 'CSV Historical';
+        let dataSource = 'CSV Historical (Pre-calculated)';
         
-        if (latestResponse.ok) {
+        if (latestApiSuccess && latestResponse) {
           const latestResult = await latestResponse.json();
           const latestDate = new Date(latestResult.dataDate);
           const latestTimestamp = latestDate.getTime();
@@ -745,35 +832,43 @@ export default function NVDARiskChart() {
           if (existingIndex >= 0) {
             // Update existing data point with latest price
             combinedData[existingIndex] = {
-              date: latestDate,
+              ...historicalData[existingIndex],
               price: latestResult.currentPrice,
-              timestamp: latestTimestamp
+              // Note: EMAs, SMAs, and risk will be recalculated for this point
             };
             console.log('Updated existing data point with latest price');
           } else {
-            // Add new latest data point
-            combinedData.push({
+            // Add new latest data point (EMAs/SMAs/risk will be calculated)
+            const newDataPoint: DataPoint = {
               date: latestDate,
               price: latestResult.currentPrice,
-              timestamp: latestTimestamp
-            });
+              timestamp: latestTimestamp,
+              ema8: 0, // Will be calculated
+              ema21: 0,
+              sma50: 0,
+              sma100: 0,
+              sma200: 0,
+              sma400: 0,
+              risk: 5 // Will be calculated
+            };
+            combinedData.push(newDataPoint);
             console.log('Added new latest data point');
           }
           
           currentPrice = latestResult.currentPrice;
-          dataSource = `CSV Historical + ${latestResult.source}`;
+          dataSource = `CSV Historical (Pre-calculated) + ${latestResult.source}`;
         } else {
           console.warn('Latest API failed, using historical data only');
           // Use the most recent historical price as current
           if (historicalData.length > 0) {
             currentPrice = historicalData[historicalData.length - 1].price;
           }
-          dataSource = 'CSV Historical Only (Latest API Failed)';
+          dataSource = 'CSV Historical Only (Pre-calculated)';
         }
         
-        // STEP 4: Process complete dataset (calculate EMAs, SMAs, risk)
-        console.log('Processing complete dataset with EMAs/SMAs and risk calculation...');
-        const processedData = processCompleteDataset(combinedData);
+        // STEP 4: Process only new/updated data points efficiently
+        console.log('⚡ Processing efficiently - only calculating new data points...');
+        const processedData = processOptimizedDataset(combinedData);
         
         // STEP 5: Calculate current risk from processed data
         const currentRiskFromData = processedData.length > 0 ? processedData[processedData.length - 1].risk : 5;
