@@ -462,7 +462,7 @@ const RiskAlgorithmExplanation = ({ riskStats }: { riskStats?: RiskStats }) => {
             <li>• <strong>EMA Responsiveness:</strong> Faster reaction to trend changes</li>
             <li>• <strong>Deep Value Preserved:</strong> SMA touches still show as purple</li>
             <li>• <strong>Trend Aware:</strong> Considers short and long-term alignment</li>
-            <li>• <strong>Growth Stock Optimized:</strong> Perfect for NVDA&apos;s dynamics</li>
+            <li>• <strong>Growth Stock Optimized:</strong> Perfect for NVDA's dynamics</li>
           </ul>
         </div>
       </div>
@@ -592,14 +592,13 @@ export default function NVDARiskChart() {
   
   // Chart height state
   const [chartHeight, setChartHeight] = useState(600);
-  const [isMounted, setIsMounted] = useState(false);
   const [chartReady, setChartReady] = useState(false);
 
   // Time range presets
   const timeRanges: TimeRange[] = [
     { label: 'Aug 2022-Present', startYear: 2022, description: 'Recent AI boom cycle (Default)' },
     { label: '2021-Present', startYear: 2021, description: 'Post-COVID cycle' },
-    { label: '2020-Present', startYear: 2020, description: 'COVID era onwards' },
+    { label: '2020-Present', startYear: 2020, description: 'Recent cycle' },
     { label: '2019-Present', startYear: 2019, description: 'Recent cycle' },
     { label: '2018-Present', startYear: 2018, description: 'Post-crypto boom' },
     { label: '2015-Present', startYear: 2015, description: 'Full modern era' },
@@ -633,7 +632,7 @@ export default function NVDARiskChart() {
 
         // Try to import date adapter, but don't fail if it doesn't work
         try {
-          // @ts-ignore - Suppress TypeScript error for date adapter
+          // Import date adapter for Chart.js time scale
           await import('chartjs-adapter-date-fns');
         } catch (adapterError) {
           console.warn('Date adapter failed to load, using default:', adapterError);
@@ -665,35 +664,35 @@ export default function NVDARiskChart() {
         if (historicalData.length === 0) {
           console.log('No CSV data found, falling back to full API call...');
           // Fallback to original API if CSV is empty
-          let response = await fetch('/api/nvda-data-yahoo');
-          
-          if (!response.ok) {
-            console.log('Yahoo Finance failed, trying Finnhub...');
-            response = await fetch('/api/nvda-data');
-          }
-          
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-          }
-          
-          const result: APIResponse = await response.json();
-          
-          const processedData = result.data.map(item => ({
-            ...item,
-            date: new Date(item.date),
-            timestamp: new Date(item.date).getTime(),
-          }));
-          
+        let response = await fetch('/api/nvda-data-yahoo');
+        
+        if (!response.ok) {
+          console.log('Yahoo Finance failed, trying Finnhub...');
+          response = await fetch('/api/nvda-data');
+        }
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        }
+        
+        const result: APIResponse = await response.json();
+        
+        const processedData = result.data.map(item => ({
+          ...item,
+          date: new Date(item.date),
+          timestamp: new Date(item.date).getTime(),
+        }));
+        
           const dataWithNewRisk = calculateEMAFocusedRisk(processedData);
           const currentRiskFromData = dataWithNewRisk.length > 0 ? dataWithNewRisk[dataWithNewRisk.length - 1].risk : result.currentRisk;
           
           setData(dataWithNewRisk);
-          setCurrentPrice(result.currentPrice);
+        setCurrentPrice(result.currentPrice);
           setCurrentRisk(currentRiskFromData);
           setDataSource(`${result.source || 'API'} (Full Fallback)`);
-          setRiskStats(result.riskStats);
-          
+        setRiskStats(result.riskStats);
+        
           console.log(`Fallback: loaded ${dataWithNewRisk.length} data points from ${result.source || 'API'}`);
           return;
         }
@@ -722,7 +721,7 @@ export default function NVDARiskChart() {
         }
         
         // STEP 3: Combine historical + latest data
-        let combinedData = [...historicalData];
+        const combinedData = [...historicalData];
         let currentPrice = 0;
         let dataSource = 'CSV Historical';
         
@@ -811,7 +810,7 @@ export default function NVDARiskChart() {
   }, []);
 
   // Filter data based on selected time range
-  const filteredData = useMemo(() => {
+  const filteredDataForTimeRange = useMemo(() => {
     if (!data.length) return [];
     
     let startDate: Date;
@@ -846,12 +845,10 @@ export default function NVDARiskChart() {
     );
     
     return filtered;
-  }, [data, selectedTimeRange, customStartDate, customEndDate]);
+  }, [data, selectedTimeRange, customStartDate, customEndDate, timeRanges]);
 
   // Set mounted state
   useEffect(() => {
-    setIsMounted(true);
-    
     const getChartHeight = () => {
       return window.innerWidth < 768 ? 500 : 600;
     };
@@ -1139,7 +1136,7 @@ export default function NVDARiskChart() {
     }, 100);
     
     return () => clearTimeout(timeoutId);
-  }, [selectedTimeRange, customStartDate, customEndDate, data, chartReady]);
+  }, [selectedTimeRange, customStartDate, customEndDate, data, chartReady, timeRanges]);
 
   // Early returns after all hooks
   if (loading) {
@@ -1315,11 +1312,11 @@ export default function NVDARiskChart() {
         displayColors: false,
         callbacks: {
           title: (context) => {
-            const dataPoint = context[0].raw as any;
+            const dataPoint = context[0].raw as { x: number };
             return format(new Date(dataPoint.x), 'MMM dd, yyyy');
           },
           label: (context) => {
-            const dataPoint = context.raw as any;
+            const dataPoint = context.raw as { y: number; risk: number; ema8?: number; ema21?: number; sma50?: number };
             return [
               `Price: $${dataPoint.y.toFixed(2)}`,
               `Risk Level: ${dataPoint.risk.toFixed(2)}`,
@@ -1495,7 +1492,7 @@ export default function NVDARiskChart() {
         {/* Risk Algorithm Explanation - Hide on small screens by default */}
         <div className="hidden md:block transition-all duration-300">
         <RiskAlgorithmExplanation riskStats={riskStats} />
-        </div>
+      </div>
         
         {/* Collapsible explanation for mobile */}
         <div className="md:hidden mb-3">
@@ -1520,7 +1517,7 @@ export default function NVDARiskChart() {
                 <li><strong>Mobile:</strong> Pinch to zoom, drag to select time ranges</li>
                 <li><strong>Mouse wheel:</strong> Zoom in/out at cursor position (desktop)</li>
                 <li><strong>Pan:</strong> Ctrl+Drag (desktop) or drag when zoomed (mobile)</li>
-                <li><strong>Reset:</strong> "Reset Zoom" button returns to Aug 2022-present view</li>
+                <li><strong>Reset:</strong> &quot;Reset Zoom&quot; button returns to Aug 2022-present view</li>
               </ul>
             </div>
             <div>
@@ -1655,7 +1652,7 @@ export default function NVDARiskChart() {
                 💡 Shortcuts: Ctrl+1-4 (timeframes), Ctrl+L (scale), Ctrl+R (reset zoom) • Show MA Lines for trend context when zoomed
               </span>
               <span className="md:hidden">
-                💡 Use "Show MA Lines" to see trend lines when zoomed in • Pinch to zoom, Ctrl+Drag to pan
+                💡 Use &quot;Show MA Lines&quot; to see trend lines when zoomed in • Pinch to zoom, Ctrl+Drag to pan
               </span>
             </div>
           </div>

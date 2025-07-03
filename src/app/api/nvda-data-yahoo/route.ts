@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import axios from 'axios';
 
 interface YahooDataPoint {
@@ -356,7 +356,7 @@ function calculateEnhancedRisk(
   return processedRisks;
 }
 
-export async function GET(_request: NextRequest) {
+export async function GET() {
   try {
     // Calculate date range - fetch data since NVDA's inception (1999)
     const endDate = new Date();

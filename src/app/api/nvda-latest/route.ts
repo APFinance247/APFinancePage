@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import axios from 'axios';
 
 interface YahooDataPoint {
@@ -23,7 +23,7 @@ interface ProcessedDataPoint {
   timestamp: number;
 }
 
-export async function GET(_request: NextRequest) {
+export async function GET() {
   try {
     // Get only the last 5 trading days to ensure we have the latest data
     const endDate = new Date();
