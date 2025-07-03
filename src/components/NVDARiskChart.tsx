@@ -565,6 +565,13 @@ interface TimeRange {
   description: string;
 }
 
+// Add mobile detection function
+const isMobileDevice = () => {
+  if (typeof window === 'undefined') return false;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+         window.innerWidth <= 768;
+};
+
 export default function NVDARiskChart() {
   const [data, setData] = useState<DataPoint[]>([]);
   const [currentPrice, setCurrentPrice] = useState<number>(0);
@@ -834,9 +841,17 @@ export default function NVDARiskChart() {
         }
         if (selectedRange.endYear) {
           endDate = new Date(selectedRange.endYear, 11, 31);
+        } else {
+          // For present-day timeframes, add 3 months to current date
+          endDate = new Date();
+          endDate.setMonth(endDate.getMonth() + 3);
         }
       } else {
-        return data;
+        // Show all data
+        startDate = new Date(data[0].date);
+        endDate = new Date(data[data.length - 1].date);
+        // Add 3 months to the end date for "All Data" view as well
+        endDate.setMonth(endDate.getMonth() + 3);
       }
     }
     
@@ -971,11 +986,22 @@ export default function NVDARiskChart() {
         // Reset to show data from Aug 2022-present (default view)
         const startDate = new Date(2022, 7, 1); // August 1, 2022
         const endDate = new Date(); // Current date
+        // Add 3 months to the end date
+        endDate.setMonth(endDate.getMonth() + 3);
         
         xScale.options.min = startDate.getTime();
         xScale.options.max = endDate.getTime();
         yScale.options.min = undefined; // Auto-fit to data
         yScale.options.max = undefined; // Auto-fit to data
+        
+        // Restore full pan limits for the default view
+        const chart = chartRef.current;
+        if (chart.options.plugins?.zoom?.limits) {
+          chart.options.plugins.zoom.limits.x = {
+            min: dataBounds.minX,
+            max: dataBounds.maxX
+          };
+        }
         
         // Clear any active hover states
         chartRef.current.setActiveElements([]);
@@ -1002,12 +1028,43 @@ export default function NVDARiskChart() {
       if (xScale && yScale) {
         // Set to past 12 months
         const endDate = new Date(); // Current date
-        const startDate = new Date(endDate.getFullYear() - 1, endDate.getMonth(), endDate.getDate()); // 12 months ago
+        // Add 3 months to the end date
+        endDate.setMonth(endDate.getMonth() + 3);
+        const startDate = new Date(endDate.getFullYear() - 1, endDate.getMonth() - 3, endDate.getDate()); // 12 months ago
+        
+        // Calculate y-axis bounds with padding based on data in the 12-month range
+        const startTime = startDate.getTime();
+        const endTime = endDate.getTime();
+        const dataInRange = data.filter(point => 
+          point.timestamp >= startTime && point.timestamp <= endTime
+        );
+        
+        if (dataInRange.length > 0) {
+          const pricesInRange = dataInRange.map(d => d.price);
+          const minPrice = Math.min(...pricesInRange);
+          const maxPrice = Math.max(...pricesInRange);
+          const priceRange = maxPrice - minPrice;
+          const pricePadding = priceRange * 0.1; // 10% padding
+          
+          yScale.options.min = Math.max(0, minPrice - pricePadding);
+          yScale.options.max = maxPrice + pricePadding;
+        } else {
+          yScale.options.min = undefined; // Auto-fit to data
+          yScale.options.max = undefined; // Auto-fit to data
+        }
         
         xScale.options.min = startDate.getTime();
         xScale.options.max = endDate.getTime();
-        yScale.options.min = undefined; // Auto-fit to data
-        yScale.options.max = undefined; // Auto-fit to data
+        
+        // Update zoom/pan limits to match the 12-month view
+        const chart = chartRef.current;
+        if (chart.options.plugins?.zoom?.limits) {
+          // Use same pan limits as other views - full data range
+          chart.options.plugins.zoom.limits.x = {
+            min: dataBounds.minX,
+            max: dataBounds.maxX
+          };
+        }
         
         // Clear any active hover states
         chartRef.current.setActiveElements([]);
@@ -1037,6 +1094,15 @@ export default function NVDARiskChart() {
         xScale.options.max = undefined; // Show all data to end
         yScale.options.min = undefined; // Auto-fit to data
         yScale.options.max = undefined; // Auto-fit to data
+        
+        // Set pan limits to full data range for all time view
+        const chart = chartRef.current;
+        if (chart.options.plugins?.zoom?.limits) {
+          chart.options.plugins.zoom.limits.x = {
+            min: dataBounds.minX,
+            max: dataBounds.maxX
+          };
+        }
         
         // Clear any active hover states
         chartRef.current.setActiveElements([]);
@@ -1115,14 +1181,25 @@ export default function NVDARiskChart() {
         );
         
         if (selectedRange && selectedRange.startYear > 0) {
-          startDate = new Date(selectedRange.startYear, 0, 1);
+          // Special handling for Aug 2022-Present
+          if (selectedRange.label === 'Aug 2022-Present') {
+            startDate = new Date(2022, 7, 1); // August 1, 2022 (month is 0-indexed)
+          } else {
+            startDate = new Date(selectedRange.startYear, 0, 1);
+          }
           if (selectedRange.endYear) {
             endDate = new Date(selectedRange.endYear, 11, 31);
+          } else {
+            // For present-day timeframes, add 3 months to current date
+            endDate = new Date();
+            endDate.setMonth(endDate.getMonth() + 3);
           }
         } else {
           // Show all data
           startDate = new Date(data[0].date);
           endDate = new Date(data[data.length - 1].date);
+          // Add 3 months to the end date for "All Data" view as well
+          endDate.setMonth(endDate.getMonth() + 3);
         }
       }
       
@@ -1132,11 +1209,20 @@ export default function NVDARiskChart() {
       yScale.options.min = undefined;
       yScale.options.max = undefined;
       
+      // Update pan limits based on the selected time range
+      if (chart.options.plugins?.zoom?.limits) {
+        // Use full data bounds for all views to ensure consistent panning behavior
+        chart.options.plugins.zoom.limits.x = {
+          min: dataBounds.minX,
+          max: dataBounds.maxX
+        };
+      }
+      
       chart.update('none');
     }, 100);
     
     return () => clearTimeout(timeoutId);
-  }, [selectedTimeRange, customStartDate, customEndDate, data, chartReady, timeRanges]);
+  }, [selectedTimeRange, customStartDate, customEndDate, data, chartReady, timeRanges, dataBounds]);
 
   // Early returns after all hooks
   if (loading) {
@@ -1320,9 +1406,6 @@ export default function NVDARiskChart() {
             return [
               `Price: $${dataPoint.y.toFixed(2)}`,
               `Risk Level: ${dataPoint.risk.toFixed(2)}`,
-              `8-Week EMA: $${dataPoint.ema8?.toFixed(2) || 'N/A'}`,
-              `21-Week EMA: $${dataPoint.ema21?.toFixed(2) || 'N/A'}`,
-              `50-Week SMA: $${dataPoint.sma50?.toFixed(2) || 'N/A'}`,
             ];
           },
         },
@@ -1335,7 +1418,35 @@ export default function NVDARiskChart() {
         pan: {
           enabled: true,
           mode: 'x',
-          modifierKey: 'ctrl',
+          modifierKey: isMobileDevice() ? undefined : 'ctrl',
+          onPan: ({chart}) => {
+            // Auto-adjust y-axis to fit visible data when panning
+            const xScale = chart.scales.x;
+            const yScale = chart.scales.y;
+            
+            if (xScale && yScale) {
+              const visibleMin = xScale.min;
+              const visibleMax = xScale.max;
+              
+              // Filter data to only what's visible in the current x-range
+              const visibleData = data.filter(point => 
+                point.timestamp >= visibleMin && point.timestamp <= visibleMax
+              );
+              
+              if (visibleData.length > 0) {
+                const visiblePrices = visibleData.map(d => d.price);
+                const minPrice = Math.min(...visiblePrices);
+                const maxPrice = Math.max(...visiblePrices);
+                const priceRange = maxPrice - minPrice;
+                const pricePadding = priceRange * 0.1; // 10% padding
+                
+                yScale.options.min = Math.max(0, minPrice - pricePadding);
+                yScale.options.max = maxPrice + pricePadding;
+              }
+            }
+            
+            chart.update('none');
+          },
         },
         zoom: {
           wheel: {
@@ -1346,7 +1457,7 @@ export default function NVDARiskChart() {
             enabled: true,
           },
           drag: {
-            enabled: true,
+            enabled: !isMobileDevice(), // Disable drag on mobile devices
             backgroundColor: 'rgba(59, 130, 246, 0.1)',
             borderColor: 'rgba(59, 130, 246, 0.8)',
             borderWidth: 2,
@@ -1354,7 +1465,31 @@ export default function NVDARiskChart() {
           },
           mode: 'x',
           onZoom: ({chart}) => {
-            // All data is always available for smooth zooming
+            // Auto-adjust y-axis to fit visible data when zooming
+            const xScale = chart.scales.x;
+            const yScale = chart.scales.y;
+            
+            if (xScale && yScale) {
+              const visibleMin = xScale.min;
+              const visibleMax = xScale.max;
+              
+              // Filter data to only what's visible in the current x-range
+              const visibleData = data.filter(point => 
+                point.timestamp >= visibleMin && point.timestamp <= visibleMax
+              );
+              
+              if (visibleData.length > 0) {
+                const visiblePrices = visibleData.map(d => d.price);
+                const minPrice = Math.min(...visiblePrices);
+                const maxPrice = Math.max(...visiblePrices);
+                const priceRange = maxPrice - minPrice;
+                const pricePadding = priceRange * 0.1; // 10% padding
+                
+                yScale.options.min = Math.max(0, minPrice - pricePadding);
+                yScale.options.max = maxPrice + pricePadding;
+              }
+            }
+            
             chart.update('none');
           },
           onZoomComplete: ({chart}) => {
@@ -1398,7 +1533,11 @@ export default function NVDARiskChart() {
         },
         // Show data from Aug 2022 by default (even though backend has data since 1999)
         min: data.length > 0 ? new Date(2022, 7, 1).getTime() : undefined,
-        max: data.length > 0 ? new Date().getTime() : undefined,
+        max: data.length > 0 ? (() => {
+          const maxDate = new Date();
+          maxDate.setMonth(maxDate.getMonth() + 3);
+          return maxDate.getTime();
+        })() : undefined,
       },
       y: {
         type: isLogScale ? 'logarithmic' : 'linear',
