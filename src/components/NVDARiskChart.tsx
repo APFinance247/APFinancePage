@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { format } from 'date-fns';
 
 // Dynamically import Chart.js components to avoid SSR issues
@@ -672,9 +672,19 @@ export default function NVDARiskChart() {
   const [customStartDate, setCustomStartDate] = useState<Date | null>(null);
   const [customEndDate, setCustomEndDate] = useState<Date | null>(null);
   
-  // Touch gesture state
-  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+  // Animation state
   const [isAnimating, setIsAnimating] = useState(false);
+  
+  // Mobile touch selection state
+  const [touchSelection, setTouchSelection] = useState<{
+    startX: number;
+    currentX: number;
+    isSelecting: boolean;
+    startTime: number;
+  } | null>(null);
+  
+  // Flag to prevent auto-zoom from interfering with custom selections
+  const [hasCustomZoom, setHasCustomZoom] = useState(false);
   
   // Chart reference for zoom controls
   const chartRef = useRef<ChartJS<"scatter">>(null);
@@ -1015,43 +1025,132 @@ export default function NVDARiskChart() {
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [isLogScale]);
 
+  // Custom mobile touch selection handlers
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (!isMobileDevice() || !chartRef.current) return;
+    
+    const touch = e.touches[0];
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    
+    setTouchSelection({
+      startX: x,
+      currentX: x,
+      isSelecting: true,
+      startTime: Date.now()
+    });
+    
+    e.preventDefault();
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!isMobileDevice() || !touchSelection?.isSelecting) return;
+    
+    const touch = e.touches[0];
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    
+    setTouchSelection(prev => prev ? {
+      ...prev,
+      currentX: x
+    } : null);
+    
+    e.preventDefault();
+  }, [touchSelection?.isSelecting]);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!isMobileDevice() || !touchSelection?.isSelecting || !chartRef.current) {
+      setTouchSelection(null);
+      return;
+    }
+    
+    const { startX, currentX, startTime } = touchSelection;
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    const distance = Math.abs(currentX - startX);
+    
+    // Check if this was a tap (short duration, small movement) vs drag
+    const isTap = duration < 300 && distance < 10; // Less than 300ms and 10px movement
+    
+    if (isTap) {
+      // This was a tap - let Chart.js handle tooltip with intersect mode
+      setTouchSelection(null);
+      return;
+    }
+    
+    // This was a drag - proceed with selection logic
+    const chart = chartRef.current;
+    const chartArea = chart.chartArea;
+    
+    if (!chartArea) {
+      setTouchSelection(null);
+      return;
+    }
+    
+    const minX = Math.min(startX, currentX);
+    const maxX = Math.max(startX, currentX);
+    
+    // Only proceed if drag distance is meaningful (at least 30px)
+    if (maxX - minX < 30) {
+      setTouchSelection(null);
+      return;
+    }
+    
+    // Convert pixel positions to chart coordinates
+    const xScale = chart.scales.x;
+    const chartLeftEdge = chartArea.left;
+    const chartRightEdge = chartArea.right;
+    const chartWidth = chartRightEdge - chartLeftEdge;
+    
+    // Calculate relative positions within chart area
+    const relativeMinX = Math.max(0, (minX - chartLeftEdge) / chartWidth);
+    const relativeMaxX = Math.min(1, (maxX - chartLeftEdge) / chartWidth);
+    
+    // Get the data range
+    const dataMin = xScale.min;
+    const dataMax = xScale.max;
+    const dataRange = dataMax - dataMin;
+    
+    // Calculate selected time range
+    const selectedMinTime = dataMin + (relativeMinX * dataRange);
+    const selectedMaxTime = dataMin + (relativeMaxX * dataRange);
+    
+    // Apply zoom
+    xScale.options.min = selectedMinTime;
+    xScale.options.max = selectedMaxTime;
+    
+    // Auto-fit Y axis to selected data
+    const yScale = chart.scales.y;
+    const visibleData = data.filter(point => 
+      point.timestamp >= selectedMinTime && point.timestamp <= selectedMaxTime
+    );
+    
+    if (visibleData.length > 0) {
+      const visiblePrices = visibleData.map(d => d.price);
+      const minPrice = Math.min(...visiblePrices);
+      const maxPrice = Math.max(...visiblePrices);
+      const priceRange = maxPrice - minPrice;
+      const pricePadding = priceRange * 0.1;
+      
+      yScale.options.min = Math.max(0, minPrice - pricePadding);
+      yScale.options.max = maxPrice + pricePadding;
+    }
+    
+    chart.update('none');
+    setTouchSelection(null);
+    setHasCustomZoom(true); // Prevent auto-zoom from interfering
+    
+    e.preventDefault();
+  }, [touchSelection, data]);
+
   // Smooth timeframe changing with animation
   const changeTimeRange = (newRange: string) => {
+    setHasCustomZoom(false); // Allow auto-zoom to work again
     setIsAnimating(true);
     setTimeout(() => {
       setSelectedTimeRange(newRange);
       setIsAnimating(false);
     }, 150);
-  };
-
-  // Touch gesture handlers for mobile
-  const handleTouchStart = (e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    setTouchStart({ x: touch.clientX, y: touch.clientY });
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!touchStart) return;
-    
-    const touch = e.changedTouches[0];
-    const deltaX = touch.clientX - touchStart.x;
-    const deltaY = touch.clientY - touchStart.y;
-    
-    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
-      const currentIndex = timeRanges.findIndex(range => 
-        range.label.toLowerCase().replace(/[^a-z]/g, '') === selectedTimeRange
-      );
-      
-      if (deltaX > 0 && currentIndex > 0) {
-        const newRange = timeRanges[currentIndex - 1];
-        changeTimeRange(newRange.label.toLowerCase().replace(/[^a-z]/g, ''));
-      } else if (deltaX < 0 && currentIndex < timeRanges.length - 2) {
-        const newRange = timeRanges[currentIndex + 1];
-        changeTimeRange(newRange.label.toLowerCase().replace(/[^a-z]/g, ''));
-      }
-    }
-    
-    setTouchStart(null);
   };
 
   // Export function
@@ -1074,6 +1173,8 @@ export default function NVDARiskChart() {
   // Reset zoom function
   const resetZoom = () => {
     if (chartRef.current) {
+      setHasCustomZoom(false); // Allow auto-zoom to work again
+      
       const xScale = chartRef.current.scales.x;
       const yScale = chartRef.current.scales.y;
       
@@ -1117,15 +1218,17 @@ export default function NVDARiskChart() {
   // Zoom to past 12 months function
   const zoomToLast12Months = () => {
     if (chartRef.current) {
+      setHasCustomZoom(false); // Allow auto-zoom to work again
+      
       const xScale = chartRef.current.scales.x;
       const yScale = chartRef.current.scales.y;
       
       if (xScale && yScale) {
         // Set to past 12 months
         const endDate = new Date(); // Current date
-        // Add 3 months to the end date
-        endDate.setMonth(endDate.getMonth() + 3);
-        const startDate = new Date(endDate.getFullYear() - 1, endDate.getMonth() - 3, endDate.getDate()); // 12 months ago
+        // Add 1 month to the end date
+        endDate.setMonth(endDate.getMonth() + 1);
+        const startDate = new Date(endDate.getFullYear() - 1, endDate.getMonth() - 1, endDate.getDate()); // 12 months ago
         
         // Calculate y-axis bounds with padding based on data in the 12-month range
         const startTime = startDate.getTime();
@@ -1180,6 +1283,8 @@ export default function NVDARiskChart() {
   // Zoom to all time function
   const zoomToAllTime = () => {
     if (chartRef.current) {
+      setHasCustomZoom(false); // Allow auto-zoom to work again
+      
       const xScale = chartRef.current.scales.x;
       const yScale = chartRef.current.scales.y;
       
@@ -1250,7 +1355,7 @@ export default function NVDARiskChart() {
 
   // Auto-zoom to selected timeframe
   useEffect(() => {
-    if (!chartRef.current || !data.length || !chartReady) return;
+    if (!chartRef.current || !data.length || !chartReady || hasCustomZoom) return;
     
     // Small delay to ensure chart is fully rendered
     const timeoutId = setTimeout(() => {
@@ -1317,163 +1422,144 @@ export default function NVDARiskChart() {
     }, 100);
     
     return () => clearTimeout(timeoutId);
-  }, [selectedTimeRange, customStartDate, customEndDate, data, chartReady, timeRanges, dataBounds]);
+  }, [selectedTimeRange, customStartDate, customEndDate, data, chartReady, timeRanges, dataBounds, hasCustomZoom]);
 
-  // Early returns after all hooks
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-900">
-        <div className="text-center">
-          <div className="text-white text-xl mb-4">Loading NVDA daily risk data...</div>
-          <div className="text-gray-400 text-sm">Calculating advanced risk metrics with historical context</div>
-        </div>
-      </div>
-    );
-  }
+  // Prepare Chart.js data with performance optimizations
+  const chartData = useMemo(() => {
+    return {
+      datasets: [
+        {
+          label: 'NVDA Risk Analysis',
+          data: data.map(point => ({
+            x: point.timestamp,
+            y: point.price,
+            risk: point.risk,
+            date: point.date,
+            ema8: point.ema8,
+            ema21: point.ema21,
+            sma50: point.sma50,
+            sma100: point.sma100,
+            sma200: point.sma200,
+          })),
+          backgroundColor: data.map(point => getRiskColor(point.risk)),
+          borderColor: data.map(point => getRiskColor(point.risk)),
+          pointRadius: isMobileDevice() ? 3 : 2, // Larger on mobile for easier targeting
+          pointHoverRadius: isMobileDevice() ? 6 : 4, // Larger on mobile for easier tapping
+          pointBorderWidth: 0,
+          showLine: false,
+          tension: 0.1,
+          fill: false,
+          borderWidth: 0,
+          order: 0,
+        },
+        // 8-Week EMA line (if enabled) - PRIMARY HIGH RISK REFERENCE
+        ...(showMovingAverages ? [{
+          label: '8-Week EMA (High Risk Ref)',
+          data: data.map(point => ({
+            x: point.timestamp,
+            y: point.ema8,
+          })),
+          backgroundColor: 'transparent',
+          borderColor: 'rgba(239, 68, 68, 1.0)', // Bright red - primary high risk reference
+          pointRadius: 0,
+          pointHoverRadius: 2,
+          showLine: true,
+          tension: 0.1,
+          fill: false,
+          borderWidth: 4, // Thickest - most important for high risk detection
+          order: 1,
+        }] : []),
+        // 21-Week EMA line (if enabled) - PRIMARY MODERATE RISK REFERENCE
+        ...(showMovingAverages ? [{
+          label: '21-Week EMA (Entry Zone)',
+          data: data.map(point => ({
+            x: point.timestamp,
+            y: point.ema21,
+          })),
+          backgroundColor: 'transparent',
+          borderColor: 'rgba(59, 130, 246, 1.0)', // Bright blue - key entry zone
+          pointRadius: 0,
+          pointHoverRadius: 2,
+          showLine: true,
+          tension: 0.1,
+          fill: false,
+          borderWidth: 3, // Second thickest - key entry reference
+          order: 2,
+        }] : []),
+        // SMA50 line (if enabled) - SECONDARY REFERENCE for low risk
+        ...(showMovingAverages ? [{
+          label: '50-Week SMA (Support)',
+          data: data.map(point => ({
+            x: point.timestamp,
+            y: point.sma50,
+          })),
+          backgroundColor: 'transparent',
+          borderColor: 'rgba(34, 197, 94, 0.8)', // Green for support level
+          pointRadius: 0,
+          pointHoverRadius: 2,
+          showLine: true,
+          tension: 0.1,
+          fill: false,
+          borderWidth: 2, // Standard thickness
+          order: 3,
+        }] : []),
+        // SMA200 line (if enabled) - as scatter dataset with lines
+        ...(showMovingAverages ? [{
+          label: '200-Week SMA',
+          data: data.map(point => ({
+            x: point.timestamp,
+            y: point.sma200,
+          })),
+          backgroundColor: 'transparent',
+          borderColor: 'rgba(156, 163, 175, 0.6)', // Gray - background reference
+          pointRadius: 0,
+          pointHoverRadius: 2,
+          showLine: true,
+          tension: 0.1,
+          fill: false,
+          borderWidth: 1, // Thinnest - background reference
+          order: 4,
+        }] : []),
+        // SMA100 line (if enabled) - as scatter dataset with lines  
+        ...(showMovingAverages ? [{
+          label: '100-Week SMA (Deep Support)',
+          data: data.map(point => ({
+            x: point.timestamp,
+            y: point.sma100,
+          })),
+          backgroundColor: 'transparent',
+          borderColor: 'rgba(168, 85, 247, 0.6)', // Faded purple - deep support
+          pointRadius: 0,
+          pointHoverRadius: 2,
+          showLine: true,
+          tension: 0.1,
+          fill: false,
+          borderWidth: 2, // Standard thickness
+          order: 5,
+        }] : []),
+      ],
+    };
+  }, [data, showMovingAverages]);
 
-  if (error) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-900">
-        <div className="text-center max-w-md">
-          <div className="text-red-400 text-xl mb-4">Error Loading Data</div>
-          <div className="text-gray-300 text-sm mb-4">{error}</div>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
-          >
-            Try Again
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Prepare Chart.js data with optional line connections and moving averages
-  const chartData = {
-    datasets: [
-      {
-        label: 'NVDA Risk Analysis',
-        data: data.map(point => ({
-          x: point.timestamp,
-          y: point.price,
-          risk: point.risk,
-          date: point.date,
-          ema8: point.ema8,
-          ema21: point.ema21,
-          sma50: point.sma50,
-          sma100: point.sma100,
-          sma200: point.sma200,
-        })),
-        backgroundColor: data.map(point => getRiskColor(point.risk)),
-        borderColor: data.map(point => getRiskColor(point.risk)),
-        pointRadius: 3,
-        pointHoverRadius: 5,
-        pointBorderWidth: 0,
-        showLine: false,
-        tension: 0.1,
-        fill: false,
-        borderWidth: 0,
-        order: 0,
-      },
-      // 8-Week EMA line (if enabled) - PRIMARY HIGH RISK REFERENCE
-      ...(showMovingAverages ? [{
-        label: '8-Week EMA (High Risk Ref)',
-        data: data.map(point => ({
-          x: point.timestamp,
-          y: point.ema8,
-        })),
-        backgroundColor: 'transparent',
-        borderColor: 'rgba(239, 68, 68, 1.0)', // Bright red - primary high risk reference
-        pointRadius: 0,
-        pointHoverRadius: 2,
-        showLine: true,
-        tension: 0.1,
-        fill: false,
-        borderWidth: 4, // Thickest - most important for high risk detection
-        order: 1,
-      }] : []),
-      // 21-Week EMA line (if enabled) - PRIMARY MODERATE RISK REFERENCE
-      ...(showMovingAverages ? [{
-        label: '21-Week EMA (Entry Zone)',
-        data: data.map(point => ({
-          x: point.timestamp,
-          y: point.ema21,
-        })),
-        backgroundColor: 'transparent',
-        borderColor: 'rgba(59, 130, 246, 1.0)', // Bright blue - key entry zone
-        pointRadius: 0,
-        pointHoverRadius: 2,
-        showLine: true,
-        tension: 0.1,
-        fill: false,
-        borderWidth: 3, // Second thickest - key entry reference
-        order: 2,
-      }] : []),
-      // SMA50 line (if enabled) - SECONDARY REFERENCE for low risk
-      ...(showMovingAverages ? [{
-        label: '50-Week SMA (Support)',
-        data: data.map(point => ({
-          x: point.timestamp,
-          y: point.sma50,
-        })),
-        backgroundColor: 'transparent',
-        borderColor: 'rgba(34, 197, 94, 0.8)', // Green for support level
-        pointRadius: 0,
-        pointHoverRadius: 2,
-        showLine: true,
-        tension: 0.1,
-        fill: false,
-        borderWidth: 2, // Standard thickness
-        order: 3,
-      }] : []),
-      // SMA200 line (if enabled) - as scatter dataset with lines
-      ...(showMovingAverages ? [{
-        label: '200-Week SMA',
-        data: data.map(point => ({
-          x: point.timestamp,
-          y: point.sma200,
-        })),
-        backgroundColor: 'transparent',
-        borderColor: 'rgba(156, 163, 175, 0.6)', // Gray - background reference
-        pointRadius: 0,
-        pointHoverRadius: 2,
-        showLine: true,
-        tension: 0.1,
-        fill: false,
-        borderWidth: 1, // Thinnest - background reference
-        order: 4,
-      }] : []),
-      // SMA100 line (if enabled) - as scatter dataset with lines  
-      ...(showMovingAverages ? [{
-        label: '100-Week SMA (Deep Support)',
-        data: data.map(point => ({
-          x: point.timestamp,
-          y: point.sma100,
-        })),
-        backgroundColor: 'transparent',
-        borderColor: 'rgba(168, 85, 247, 0.6)', // Faded purple - deep support
-        pointRadius: 0,
-        pointHoverRadius: 2,
-        showLine: true,
-        tension: 0.1,
-        fill: false,
-        borderWidth: 2, // Standard thickness
-        order: 5,
-      }] : []),
-    ],
-  };
-
-  // Chart.js options with professional styling and zoom
-  const chartOptions: ChartOptions<'scatter'> = {
+  // Chart.js options with performance optimizations
+  const chartOptions: ChartOptions<'scatter'> = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
+    // Disable animations for better performance
+    animation: false,
+    transitions: {
+      active: {
+        animation: {
+          duration: 0
+        }
+      }
+    },
     interaction: {
-      intersect: false,
-      mode: 'nearest',
+      intersect: true, // Only trigger when directly intersecting with data points
+      mode: 'point', // Only interact with individual points
       includeInvisible: false,
     },
-    onHover: (event, elements) => {
-      // Ensure consistent hover behavior
+    onHover: isMobileDevice() ? undefined : (event, elements) => {
       const target = event.native?.target as HTMLCanvasElement;
       if (target && target.style) {
         target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
@@ -1484,6 +1570,7 @@ export default function NVDARiskChart() {
         display: false,
       },
       tooltip: {
+        enabled: true, // Re-enable tooltips on mobile for tap interactions
         backgroundColor: 'rgba(31, 41, 55, 0.95)',
         titleColor: '#ffffff',
         bodyColor: '#d1d5db',
@@ -1511,86 +1598,24 @@ export default function NVDARiskChart() {
           x: {min: dataBounds.minX, max: dataBounds.maxX}
         },
         pan: {
-          enabled: true,
-          mode: 'x',
-          modifierKey: isMobileDevice() ? undefined : 'ctrl',
-          onPan: ({chart}) => {
-            // Auto-adjust y-axis to fit visible data when panning
-            const xScale = chart.scales.x;
-            const yScale = chart.scales.y;
-            
-            if (xScale && yScale) {
-              const visibleMin = xScale.min;
-              const visibleMax = xScale.max;
-              
-              // Filter data to only what's visible in the current x-range
-              const visibleData = data.filter(point => 
-                point.timestamp >= visibleMin && point.timestamp <= visibleMax
-              );
-              
-              if (visibleData.length > 0) {
-                const visiblePrices = visibleData.map(d => d.price);
-                const minPrice = Math.min(...visiblePrices);
-                const maxPrice = Math.max(...visiblePrices);
-                const priceRange = maxPrice - minPrice;
-                const pricePadding = priceRange * 0.1; // 10% padding
-                
-                yScale.options.min = Math.max(0, minPrice - pricePadding);
-                yScale.options.max = maxPrice + pricePadding;
-              }
-            }
-            
-            chart.update('none');
-          },
+          enabled: false, // Disable all panning/scrolling
         },
         zoom: {
           wheel: {
-            enabled: true,
-            speed: 0.1,
+            enabled: false, // Disable mouse wheel zoom
           },
           pinch: {
-            enabled: true,
+            enabled: false, // Disable pinch zoom
           },
           drag: {
-            enabled: !isMobileDevice(), // Disable drag on mobile devices
+            enabled: !isMobileDevice(), // Disable Chart.js drag on mobile, use custom handling
             backgroundColor: 'rgba(59, 130, 246, 0.1)',
             borderColor: 'rgba(59, 130, 246, 0.8)',
             borderWidth: 2,
             threshold: 15,
+            modifierKey: undefined,
           },
           mode: 'x',
-          onZoom: ({chart}) => {
-            // Auto-adjust y-axis to fit visible data when zooming
-            const xScale = chart.scales.x;
-            const yScale = chart.scales.y;
-            
-            if (xScale && yScale) {
-              const visibleMin = xScale.min;
-              const visibleMax = xScale.max;
-              
-              // Filter data to only what's visible in the current x-range
-              const visibleData = data.filter(point => 
-                point.timestamp >= visibleMin && point.timestamp <= visibleMax
-              );
-              
-              if (visibleData.length > 0) {
-                const visiblePrices = visibleData.map(d => d.price);
-                const minPrice = Math.min(...visiblePrices);
-                const maxPrice = Math.max(...visiblePrices);
-                const priceRange = maxPrice - minPrice;
-                const pricePadding = priceRange * 0.1; // 10% padding
-                
-                yScale.options.min = Math.max(0, minPrice - pricePadding);
-                yScale.options.max = maxPrice + pricePadding;
-              }
-            }
-            
-            chart.update('none');
-          },
-          onZoomComplete: ({chart}) => {
-            // Re-enable interactions after zoom
-            chart.update('none');
-          },
         },
       },
     },
@@ -1626,7 +1651,7 @@ export default function NVDARiskChart() {
         border: {
           color: 'rgba(156, 163, 175, 0.2)',
         },
-        // Show data from Aug 2022 by default (even though backend has data since 1999)
+        // Show data from Aug 2022 by default
         min: data.length > 0 ? new Date(2022, 7, 1).getTime() : undefined,
         max: data.length > 0 ? (() => {
           const maxDate = new Date();
@@ -1657,7 +1682,36 @@ export default function NVDARiskChart() {
         },
       },
     },
-  };
+  }), [dataBounds, isLogScale, data]);
+
+  // Early returns after all hooks
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-900">
+        <div className="text-center">
+          <div className="text-white text-xl mb-4">Loading NVDA daily risk data...</div>
+          <div className="text-gray-400 text-sm">Calculating advanced risk metrics with historical context</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-900">
+        <div className="text-center max-w-md">
+          <div className="text-red-400 text-xl mb-4">Error Loading Data</div>
+          <div className="text-gray-300 text-sm mb-4">{error}</div>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-900 p-2 md:p-6">
@@ -1683,29 +1737,59 @@ export default function NVDARiskChart() {
         <div className={`bg-gray-800 rounded-lg p-2 md:p-6 shadow-xl transition-all duration-500 relative mb-4 md:mb-8 ${
           isAnimating ? 'opacity-90 scale-99' : 'opacity-100 scale-100'
         }`}>
-          {/* Chart Control Buttons - Responsive design */}
-          <div className="absolute top-2 md:top-4 left-1/2 transform -translate-x-1/2 z-10 flex gap-1 md:gap-2">
+          {/* Chart Control Buttons - Positioned above chart */}
+          <div className="flex justify-center gap-2 mb-4 md:mb-6">
             <button
               onClick={resetZoom}
-              className="bg-purple-600 hover:bg-purple-700 text-white px-1.5 md:px-3 py-1 md:py-1.5 rounded text-xs md:text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
+              className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
             >
-              🔍 <span className="hidden sm:inline">Reset</span>
+              🔍 Reset
             </button>
             <button
               onClick={zoomToLast12Months}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-1.5 md:px-3 py-1 md:py-1.5 rounded text-xs md:text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
+              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
             >
-              📅 <span className="hidden sm:inline">12M</span>
+              📅 12M
             </button>
             <button
               onClick={zoomToAllTime}
-              className="bg-green-600 hover:bg-green-700 text-white px-1.5 md:px-3 py-1 md:py-1.5 rounded text-xs md:text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
+              className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-sm font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
             >
-              🌐 <span className="hidden sm:inline">All</span>
+              🌐 All
             </button>
           </div>
           
-          <div style={{ height: `${chartHeight}px` }}>
+          {/* Mobile instruction */}
+          <div className="block md:hidden text-center text-xs text-gray-400 mb-3">
+            Tap directly on data points for details • Drag across chart to select time period
+          </div>
+          
+          <div 
+            style={{ 
+              height: `${chartHeight}px`,
+              touchAction: isMobileDevice() ? 'none' : 'manipulation',
+              position: 'relative'
+            }} 
+            className="select-none"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
+            {/* Custom mobile selection overlay - only show for actual drags */}
+            {isMobileDevice() && touchSelection?.isSelecting && 
+             Math.abs(touchSelection.currentX - touchSelection.startX) > 10 && (
+              <div
+                className="absolute top-0 pointer-events-none z-10"
+                style={{
+                  left: Math.min(touchSelection.startX, touchSelection.currentX),
+                  width: Math.abs(touchSelection.currentX - touchSelection.startX),
+                  height: '100%',
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)', // Match Chart.js desktop transparency
+                  border: '2px solid rgba(59, 130, 246, 0.8)', // Match Chart.js desktop border
+                }}
+              />
+            )}
+            
             {chartReady && !loading ? (
               <Scatter
                 ref={chartRef}
