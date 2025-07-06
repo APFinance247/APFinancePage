@@ -10,7 +10,8 @@
     "generate-csv": "node scripts/generate-csv.js",
     "update-csv": "node scripts/generate-csv.js",
     "update-csv-daily": "node scripts/update-csv-incremental.js",
-    "setup-automation": "bash scripts/setup-daily-update.sh"
+    "setup-automation": "bash scripts/setup-daily-update.sh",
+    "generate-stock-csv": "node scripts/generate-stock-csv.js"
   },
   "dependencies": {
     "axios": "^1.10.0",
