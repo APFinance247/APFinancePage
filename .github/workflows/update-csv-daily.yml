@@ -1,0 +1,68 @@
+name: Update NVDA CSV Daily
+
+on:
+  schedule:
+    # Run daily at 6 PM EST (after market close)
+    - cron: '0 23 * * 1-5'  # 23:00 UTC = 6 PM EST (weekdays only)
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  update-csv:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Update CSV incrementally
+      run: npm run update-csv-daily
+      
+    - name: Check for changes
+      id: check-changes
+      run: |
+        if git diff --quiet public/nvda-historical-data.csv; then
+          echo "changes=false" >> $GITHUB_OUTPUT
+          echo "No changes detected in CSV file"
+        else
+          echo "changes=true" >> $GITHUB_OUTPUT
+          echo "Changes detected in CSV file"
+        fi
+        
+    - name: Commit and push changes
+      if: steps.check-changes.outputs.changes == 'true'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add public/nvda-historical-data.csv
+        git commit -m "🤖 Auto-update NVDA CSV with latest data $(date +'%Y-%m-%d')"
+        git push
+        
+    - name: Create summary
+      run: |
+        echo "## 📊 NVDA CSV Update Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [[ "${{ steps.check-changes.outputs.changes }}" == "true" ]]; then
+          echo "✅ **Status:** CSV updated with new data" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Changes made:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Updated NVDA historical data with latest price" >> $GITHUB_STEP_SUMMARY
+          echo "- Recalculated EMAs, SMAs, and risk levels" >> $GITHUB_STEP_SUMMARY
+          echo "- Committed changes to repository" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "ℹ️ **Status:** CSV already up to date" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "No new data available or CSV already contains latest data." >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Next update:** Tomorrow at 6 PM EST" >> $GITHUB_STEP_SUMMARY 

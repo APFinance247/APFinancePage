@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import axios from 'axios';
 
 interface YahooDataPoint {
@@ -241,7 +241,7 @@ function calculateEnhancedRisk(
     ) / 3; // -1 to 1
     
     // Volatility adjustment factor - reduced during extreme periods
-    let volAdjustment = percentileVol > 75 ? 0.3 : (percentileVol < 25 ? -0.3 : 0);
+    const volAdjustment = percentileVol > 75 ? 0.3 : (percentileVol < 25 ? -0.3 : 0);
     
     // Momentum factor - reduced impact
     const momentumFactor = (mom13 * 0.7 + mom26 * 0.3) * 1.5;
@@ -356,7 +356,7 @@ function calculateEnhancedRisk(
   return processedRisks;
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // Calculate date range - fetch data since NVDA's inception (1999)
     const endDate = new Date();
@@ -467,14 +467,10 @@ export async function GET(request: NextRequest) {
       riskStats
     });
     
-  } catch (error: any) {
-    console.error('Error fetching NVDA daily data from Yahoo Finance:', error);
+  } catch (error: unknown) {
+    console.error('Error in Yahoo Finance API:', error);
     return NextResponse.json(
-      { 
-        error: 'Failed to fetch NVDA daily data from Yahoo Finance',
-        details: error.message,
-        suggestion: 'Try using the Finnhub endpoint or check your internet connection'
-      },
+      { error: 'Failed to fetch NVDA data', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }

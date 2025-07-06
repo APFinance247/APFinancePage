@@ -129,6 +129,16 @@ body {
     min-width: 100% !important;
   }
   
+  /* Optimize Chart.js canvas for mobile touch */
+  canvas {
+    touch-action: pan-y !important; /* Allow vertical scroll, prevent horizontal */
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    pointer-events: auto; /* Allow custom touch handling to work */
+  }
+  
   /* Optimize chart text for mobile */
   .recharts-cartesian-axis-tick-value {
     font-size: 10px !important;

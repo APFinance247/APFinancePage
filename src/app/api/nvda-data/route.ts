@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import axios from 'axios';
 
 interface CandleData {
@@ -87,7 +87,7 @@ function calculateRisk(
   return Math.max(1, Math.min(10, 1 + (normalizedRisk * 9)));
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const apiKey = process.env.FINNHUB_API_KEY || 'c58gpgaad3ifmjb47cl0';
     

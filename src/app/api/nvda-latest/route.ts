@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import axios from 'axios';
 
 interface YahooDataPoint {
@@ -23,7 +23,7 @@ interface ProcessedDataPoint {
   timestamp: number;
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // Get only the last 5 trading days to ensure we have the latest data
     const endDate = new Date();
@@ -99,13 +99,10 @@ export async function GET(request: NextRequest) {
       dataDate: new Date(latestDataPoint.date).toISOString(),
     });
     
-  } catch (error: any) {
-    console.error('Error fetching latest NVDA data from Yahoo Finance:', error);
+  } catch (error: unknown) {
+    console.error('Error fetching latest NVDA data:', error);
     return NextResponse.json(
-      { 
-        error: 'Failed to fetch latest NVDA data from Yahoo Finance',
-        details: error.message,
-      },
+      { error: 'Failed to fetch latest NVDA data', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
