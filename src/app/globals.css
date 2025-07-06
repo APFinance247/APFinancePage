@@ -131,7 +131,7 @@ body {
   
   /* Optimize Chart.js canvas for mobile touch */
   canvas {
-    touch-action: none !important;
+    touch-action: pan-y !important; /* Allow vertical scroll, prevent horizontal */
     user-select: none;
     -webkit-user-select: none;
     -moz-user-select: none;

@@ -1173,7 +1173,8 @@ export default function NVDARiskChart() {
   // Reset zoom function
   const resetZoom = () => {
     if (chartRef.current) {
-      setHasCustomZoom(false); // Allow auto-zoom to work again
+      // Set custom zoom temporarily to prevent auto-zoom interference
+      setHasCustomZoom(true);
       
       const xScale = chartRef.current.scales.x;
       const yScale = chartRef.current.scales.y;
@@ -1218,7 +1219,8 @@ export default function NVDARiskChart() {
   // Zoom to past 12 months function
   const zoomToLast12Months = () => {
     if (chartRef.current) {
-      setHasCustomZoom(false); // Allow auto-zoom to work again
+      // Set custom zoom to prevent auto-zoom interference
+      setHasCustomZoom(true);
       
       const xScale = chartRef.current.scales.x;
       const yScale = chartRef.current.scales.y;
@@ -1283,7 +1285,8 @@ export default function NVDARiskChart() {
   // Zoom to all time function
   const zoomToAllTime = () => {
     if (chartRef.current) {
-      setHasCustomZoom(false); // Allow auto-zoom to work again
+      // Set custom zoom to prevent auto-zoom interference
+      setHasCustomZoom(true);
       
       const xScale = chartRef.current.scales.x;
       const yScale = chartRef.current.scales.y;
@@ -1612,10 +1615,14 @@ export default function NVDARiskChart() {
             backgroundColor: 'rgba(59, 130, 246, 0.1)',
             borderColor: 'rgba(59, 130, 246, 0.8)',
             borderWidth: 2,
-            threshold: 15,
+            threshold: 30, // Increased from 15 to 30 pixels to prevent accidental zoom on click
             modifierKey: undefined,
           },
           mode: 'x',
+          onZoom: ({ chart }) => {
+            // Set custom zoom flag when user manually zooms
+            setHasCustomZoom(true);
+          },
         },
       },
     },
