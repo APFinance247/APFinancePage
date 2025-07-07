@@ -6,6 +6,7 @@ interface StockPageProps {
   params: {
     symbol: string;
   };
+  searchParams: { [key: string]: string | string[] | undefined };
 }
 
 export async function generateMetadata({ params }: StockPageProps): Promise<Metadata> {
