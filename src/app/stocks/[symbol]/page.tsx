@@ -1,7 +1,13 @@
 import StockRiskChart from '@/components/StockRiskChart';
 import { STOCK_CONFIGS } from '@/types/stock-analysis';
 
-export default function StockPage({ params }: { params: { symbol: string } }) {
+interface StockPageProps {
+  params: {
+    symbol: string;
+  };
+}
+
+export default function StockPage({ params }: StockPageProps) {
   const symbol = params.symbol.toUpperCase();
   const stockConfig = STOCK_CONFIGS[symbol];
   
