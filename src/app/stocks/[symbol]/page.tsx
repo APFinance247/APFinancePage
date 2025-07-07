@@ -2,31 +2,31 @@ import StockRiskChart from '@/components/StockRiskChart';
 import { STOCK_CONFIGS } from '@/types/stock-analysis';
 import type { Metadata } from 'next';
 
-interface StockPageProps {
-  params: {
-    symbol: string;
-  };
-  searchParams: { [key: string]: string | string[] | undefined };
+type PageProps = {
+  params: Promise<{ symbol: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
-export async function generateMetadata({ params }: StockPageProps): Promise<Metadata> {
-  const symbol = params.symbol.toUpperCase();
-  const stockConfig = STOCK_CONFIGS[symbol];
-  const companyName = stockConfig?.name || symbol;
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { symbol } = await params;
+  const upperSymbol = symbol.toUpperCase();
+  const stockConfig = STOCK_CONFIGS[upperSymbol];
+  const companyName = stockConfig?.name || upperSymbol;
 
   return {
-    title: `${companyName} (${symbol}) Risk Analysis`,
-    description: `Historical risk analysis and price chart for ${companyName} (${symbol}).`,
+    title: `${companyName} (${upperSymbol}) Risk Analysis`,
+    description: `Historical risk analysis and price chart for ${companyName} (${upperSymbol}).`,
   };
 }
 
-export default function StockPage({ params }: StockPageProps) {
-  const symbol = params.symbol.toUpperCase();
-  const stockConfig = STOCK_CONFIGS[symbol];
+export default async function StockPage({ params }: PageProps) {
+  const { symbol } = await params;
+  const upperSymbol = symbol.toUpperCase();
+  const stockConfig = STOCK_CONFIGS[upperSymbol];
   
   return (
     <StockRiskChart 
-      symbol={symbol}
+      symbol={upperSymbol}
       companyName={stockConfig?.name}
     />
   );
