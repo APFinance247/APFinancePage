@@ -529,8 +529,9 @@ export default function StockRiskChart({
           })),
           backgroundColor: data.map(point => StockAnalysisService.getRiskColor(point.risk)),
           borderColor: data.map(point => StockAnalysisService.getRiskColor(point.risk)),
-          pointRadius: 1.5,
-          pointHoverRadius: 4,
+          //change data point size
+          pointRadius: 2,
+          pointHoverRadius: 3,
           pointBorderWidth: 0,
           showLine: false,
           tension: 0.1,
@@ -685,6 +686,33 @@ export default function StockRiskChart({
             mode: 'x',
             onZoom: ({ chart }) => {
               setHasCustomZoom(true);
+              
+              // Auto-scale y-axis based on visible data
+              const xScale = chart.scales.x;
+              const yScale = chart.scales.y;
+              
+              if (xScale && yScale && data.length > 0) {
+                const minX = xScale.min;
+                const maxX = xScale.max;
+                
+                // Filter data to visible range
+                const visibleData = data.filter(point => 
+                  point.timestamp >= minX && point.timestamp <= maxX
+                );
+                
+                if (visibleData.length > 0) {
+                  const visiblePrices = visibleData.map(d => d.price);
+                  const minPrice = Math.min(...visiblePrices);
+                  const maxPrice = Math.max(...visiblePrices);
+                  const priceRange = maxPrice - minPrice;
+                  const pricePadding = priceRange * 0.1;
+                  
+                  yScale.options.min = Math.max(0, minPrice - pricePadding);
+                  yScale.options.max = maxPrice + pricePadding;
+                  
+                  chart.update('none');
+                }
+              }
             },
           },
         },
