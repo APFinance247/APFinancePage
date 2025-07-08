@@ -48,8 +48,8 @@ const isMobileDevice = () => {
          window.innerWidth <= 768;
 };
 
-// Current Risk Assessment Card
-const CurrentRiskAssessment = ({ 
+// Stock Summary Display
+const StockSummaryDisplay = ({ 
   currentRisk, 
   currentPrice, 
   symbol, 
@@ -61,42 +61,48 @@ const CurrentRiskAssessment = ({
   companyName?: string;
 }) => {
   const riskInfo = StockAnalysisService.getRiskDescription(currentRisk);
-  
+
   return (
     <div className="bg-gradient-to-r from-gray-800 to-gray-700 rounded-xl p-4 md:p-6 shadow-2xl border border-gray-600">
-      <div className="text-center">
-        <h2 className="text-lg md:text-2xl font-bold text-white mb-1 md:mb-2">
-          Current Risk Assessment
-        </h2>
-        <h3 className="text-sm md:text-lg text-gray-300 mb-3 md:mb-4">
-          {companyName || symbol} (${symbol}) (${currentPrice.toFixed(2)})
-        </h3>
-        
-        <div className="flex items-center justify-center gap-4 md:gap-8 mb-3 md:mb-4">
+      <div className="flex flex-col items-center text-center">
+        {/* Top: Stock Info */}
+        <div className="mb-4">
+          <h2 className="text-xl md:text-3xl font-bold text-white">
+            {companyName || symbol}
+          </h2>
+          <p className="text-lg md:text-xl text-gray-300">
+            ${symbol} - ${currentPrice.toFixed(2)}
+          </p>
+        </div>
+
+        {/* Middle: Risk Details */}
+        <div className="flex justify-center items-center gap-8 mb-4 w-full max-w-md">
+          {/* Left: Score */}
           <div className="text-center">
             <div 
-              className="text-4xl md:text-6xl font-bold mb-1 md:mb-2"
+              className="text-4xl md:text-6xl font-bold"
               style={{ color: riskInfo.color }}
             >
               {currentRisk.toFixed(1)}
             </div>
-            <div className="text-sm md:text-lg text-gray-400">Risk Score</div>
+            <div className="text-sm text-gray-400">Risk Score</div>
           </div>
-          
+          {/* Right: Description */}
           <div className="text-center">
             <div 
-              className="text-lg md:text-2xl font-bold mb-1 md:mb-2"
+              className="text-lg md:text-2xl font-bold"
               style={{ color: riskInfo.color }}
             >
               {riskInfo.level}
             </div>
-            <div className="text-xs md:text-sm text-gray-300 max-w-xs">
+            <div className="text-xs text-gray-300 max-w-xs">
               {riskInfo.description}
             </div>
           </div>
         </div>
-        
-        <div className="relative w-full max-w-md mx-auto">
+
+        {/* Risk Color Legend Bar */}
+        <div className="relative w-full max-w-lg mx-auto">
           <div className="flex justify-between text-xs text-gray-400 mb-1">
             <span>1</span>
             <span>5</span>
@@ -104,14 +110,15 @@ const CurrentRiskAssessment = ({
           </div>
           <div className="h-3 md:h-4 bg-gray-700 rounded-full overflow-hidden">
             <div 
-              className="h-full transition-all duration-500 rounded-full"
-              style={{ 
-                width: `${(currentRisk / 10) * 100}%`,
-                background: currentRisk <= 4 
-                  ? `linear-gradient(90deg, rgb(68,1,84), ${riskInfo.color})`
-                  : currentRisk <= 7 
-                  ? `linear-gradient(90deg, rgb(68,1,84), rgb(147,132,209), ${riskInfo.color})`
-                  : `linear-gradient(90deg, rgb(68,1,84), rgb(147,132,209), rgb(94,201,98), ${riskInfo.color})`
+              className="h-full w-full"
+              style={{
+                background: `linear-gradient(90deg, 
+                  ${StockAnalysisService.getRiskColor(1)}, 
+                  ${StockAnalysisService.getRiskColor(3)}, 
+                  ${StockAnalysisService.getRiskColor(5)}, 
+                  ${StockAnalysisService.getRiskColor(7)}, 
+                  ${StockAnalysisService.getRiskColor(10)}
+                )`
               }}
             />
           </div>
@@ -825,9 +832,9 @@ export default function StockRiskChart({
           )}
         </div>
 
-        {/* Current Risk Assessment */}
+        {/* Stock Summary Display */}
         <div className="transition-all duration-500 ease-in-out mb-4 md:mb-8">
-          <CurrentRiskAssessment 
+          <StockSummaryDisplay 
             currentRisk={currentRisk} 
             currentPrice={currentPrice} 
             symbol={symbol}

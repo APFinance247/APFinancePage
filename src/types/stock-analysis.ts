@@ -88,6 +88,19 @@ export interface StockConfig {
 
 // Pre-configured stocks
 export const STOCK_CONFIGS: Record<string, StockConfig> = {
+  VOO: {
+    symbol: 'VOO',
+    name: 'Vanguard S&P 500 ETF',
+    riskConfig: {
+      algorithm: 'ema-focused',
+      // ETFs typically have lower volatility than individual stocks
+      riskThresholds: {
+        yellowTerritory: 0.10, // 10% for less volatile ETF
+        elevatedTerritory: 0.05,
+        nearEMA: -0.03
+      }
+    }
+  },
   NVDA: {
     symbol: 'NVDA',
     name: 'NVIDIA Corporation',
