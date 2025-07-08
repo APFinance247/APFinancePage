@@ -161,8 +161,10 @@ export default function StockRiskChart({
   // Mobile touch selection state
   const [touchSelection, setTouchSelection] = useState<{
     startX: number;
+    startY: number;
     currentX: number;
-    isSelecting: boolean;
+    currentY: number;
+    status: 'pending' | 'selecting' | 'scrolling';
     startTime: number;
   } | null>(null);
 
@@ -278,68 +280,67 @@ export default function StockRiskChart({
 
     const touch = e.touches[0];
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = touch.clientX - rect.left;
 
     setTouchSelection({
-      startX: x,
-      currentX: x,
-      isSelecting: true,
+      startX: touch.clientX - rect.left,
+      startY: touch.clientY - rect.top,
+      currentX: touch.clientX - rect.left,
+      currentY: touch.clientY - rect.top,
+      status: 'pending',
       startTime: Date.now()
     });
-
-    e.preventDefault();
   }, []);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!isMobileDevice() || !touchSelection?.isSelecting) return;
+    if (!touchSelection) return;
 
     const touch = e.touches[0];
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = touch.clientX - rect.left;
+    const currentX = touch.clientX - rect.left;
+    const currentY = touch.clientY - rect.top;
 
-    setTouchSelection(prev => prev ? {
-      ...prev,
-      currentX: x
-    } : null);
+    if (touchSelection.status === 'pending') {
+      const dx = Math.abs(currentX - touchSelection.startX);
+      const dy = Math.abs(currentY - touchSelection.startY);
+      const dragThreshold = 10;
 
-    e.preventDefault();
-  }, [touchSelection?.isSelecting]);
+      if (dx > dragThreshold || dy > dragThreshold) {
+        if (dx > dy) {
+          // Horizontal movement: start selecting
+          setTouchSelection(prev => prev ? { ...prev, status: 'selecting', currentX } : null);
+          e.preventDefault();
+        } else {
+          // Vertical movement: abort selection and allow scrolling
+          setTouchSelection(prev => prev ? { ...prev, status: 'scrolling' } : null);
+        }
+      }
+    } else if (touchSelection.status === 'selecting') {
+      setTouchSelection(prev => prev ? { ...prev, currentX } : null);
+      e.preventDefault();
+    }
+    // If status is 'scrolling', do nothing to allow native scroll
+  }, [touchSelection]);
 
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    if (!isMobileDevice() || !touchSelection?.isSelecting || !chartRef.current) {
+    if (!touchSelection || touchSelection.status !== 'selecting' || !chartRef.current) {
       setTouchSelection(null);
       return;
     }
 
-    const { startX, currentX, startTime } = touchSelection;
-    const endTime = Date.now();
-    const duration = endTime - startTime;
+    const { startX, currentX } = touchSelection;
     const distance = Math.abs(currentX - startX);
-
-    // Check if this was a tap (short duration, small movement) vs drag
-    const isTap = duration < 300 && distance < 10;
-
-    if (isTap) {
-      setTouchSelection(null);
-      return;
-    }
 
     // This was a drag - proceed with selection logic
     const chart = chartRef.current;
     const chartArea = chart.chartArea;
 
-    if (!chartArea) {
+    if (!chartArea || distance < 30) {
       setTouchSelection(null);
       return;
     }
 
     const minX = Math.min(startX, currentX);
     const maxX = Math.max(startX, currentX);
-
-    if (maxX - minX < 30) {
-      setTouchSelection(null);
-      return;
-    }
 
     const xScale = chart.scales.x;
     const chartLeftEdge = chartArea.left;
@@ -378,8 +379,6 @@ export default function StockRiskChart({
     chart.update('none');
     setTouchSelection(null);
     setHasCustomZoom(true);
-
-    e.preventDefault();
   }, [touchSelection, data]);
 
   // Auto-zoom to default view (3 years) on initial load
@@ -880,7 +879,7 @@ export default function StockRiskChart({
           <div 
             style={{ 
               height: `${chartHeight}px`,
-              touchAction: isMobileDevice() ? 'none' : 'manipulation',
+              touchAction: isMobileDevice() ? 'pan-y' : 'manipulation',
               position: 'relative'
             }} 
             className="select-none"
@@ -889,7 +888,7 @@ export default function StockRiskChart({
             onTouchEnd={handleTouchEnd}
           >
             {/* Custom mobile selection overlay */}
-            {isMobileDevice() && touchSelection?.isSelecting && 
+            {isMobileDevice() && touchSelection?.status === 'selecting' && 
              Math.abs(touchSelection.currentX - touchSelection.startX) > 10 && (
               <div
                 className="absolute top-0 pointer-events-none z-10"
