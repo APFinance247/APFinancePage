@@ -14,6 +14,7 @@
     "generate-stock-csv": "node scripts/generate-stock-csv.js"
   },
   "dependencies": {
+    "@vercel/analytics": "^1.5.0",
     "axios": "^1.10.0",
     "chart.js": "^4.5.0",
     "chartjs-adapter-date-fns": "^3.0.0",
