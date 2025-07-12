@@ -33,6 +33,45 @@ interface StockRiskChartProps {
   useCSV?: boolean; // For backward compatibility with NVDA CSV
 }
 
+// Load historical data from individual stock CSV file
+async function loadDataFromStockCSV(symbol: string): Promise<StockDataPoint[]> {
+  try {
+    const response = await fetch(`/stock-data/${symbol.toUpperCase()}.csv`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch CSV for ${symbol}: ${response.statusText}`);
+    }
+    const csvText = await response.text();
+    
+    const lines = csvText.split('\n').filter(line => line.trim());
+    const dataLines = lines.slice(1); // Skip header
+    
+    const historicalData = dataLines
+      .map(line => {
+        const [dateStr, priceStr, timestampStr, ema8Str, ema21Str, sma50Str, sma100Str, sma200Str, sma400Str, riskStr] = line.split(',');
+        
+        return {
+          date: new Date(dateStr),
+          price: parseFloat(priceStr) || 0,
+          timestamp: parseInt(timestampStr) || 0,
+          ema8: parseFloat(ema8Str) || 0,
+          ema21: parseFloat(ema21Str) || 0,
+          sma50: parseFloat(sma50Str) || 0,
+          sma100: parseFloat(sma100Str) || 0,
+          sma200: parseFloat(sma200Str) || 0,
+          sma400: parseFloat(sma400Str) || 0,
+          risk: parseFloat(riskStr) || 5,
+        };
+      })
+      .filter(item => !isNaN(item.price) && item.price > 0);
+    
+    console.log(`✅ Loaded ${historicalData.length} pre-calculated data points for ${symbol} from CSV`);
+    return historicalData;
+  } catch (error) {
+    console.error(`Error loading historical data for ${symbol} from CSV:`, error);
+    return [];
+  }
+}
+
 // Time range interface
 interface TimeRange {
   label: string;
@@ -397,7 +436,114 @@ export default function StockRiskChart({
         
         let result: StockAnalysisResponse;
         
-        // Check if we should use CSV (for backward compatibility with NVDA)
+        // Try to load from individual stock CSV first
+        console.log(`Loading historical data for ${symbol} from CSV...`);
+        const historicalData = await loadDataFromStockCSV(symbol);
+        
+        if (historicalData.length > 0) {
+          // Successfully loaded from CSV, now fetch only the latest price
+          console.log(`Fetching latest data point for ${symbol} from API...`);
+          
+          try {
+            const latestResponse = await fetch(`/api/stock-latest?symbol=${symbol}`);
+            if (!latestResponse.ok) {
+              throw new Error('Failed to fetch latest data');
+            }
+            
+            const latestResult = await latestResponse.json();
+            const latestDate = new Date(latestResult.dataDate);
+            const latestTimestamp = latestDate.getTime();
+            
+            // Check if we already have this date in historical data
+            const existingIndex = historicalData.findIndex(item => 
+              Math.abs(item.timestamp - latestTimestamp) < 24 * 60 * 60 * 1000 // Within 24 hours
+            );
+            
+            let finalData = [...historicalData];
+            
+            if (existingIndex >= 0) {
+              // Update existing data point with latest price if different
+              if (Math.abs(historicalData[existingIndex].price - latestResult.currentPrice) > 0.01) {
+                // Need to recalculate risk for the updated price
+                // For now, we'll keep the existing risk from CSV
+                finalData[existingIndex] = {
+                  ...historicalData[existingIndex],
+                  price: latestResult.currentPrice,
+                };
+                console.log(`Updated existing data point for ${symbol} with latest price`);
+              }
+            } else {
+              // Add new data point - we'll need to calculate indicators for it
+              // For now, we'll use the last known values as approximation
+              const lastPoint = historicalData[historicalData.length - 1];
+              const newDataPoint: StockDataPoint = {
+                date: latestDate,
+                price: latestResult.currentPrice,
+                timestamp: latestTimestamp,
+                ema8: lastPoint.ema8,
+                ema21: lastPoint.ema21,
+                sma50: lastPoint.sma50,
+                sma100: lastPoint.sma100,
+                sma200: lastPoint.sma200,
+                sma400: lastPoint.sma400,
+                risk: lastPoint.risk, // Approximate with last known risk
+              };
+              finalData.push(newDataPoint);
+              console.log(`Added new latest data point for ${symbol}`);
+            }
+            
+            // Calculate risk stats
+            const risks = finalData.map(d => d.risk);
+            const riskStats: RiskStats = {
+              min: Math.min(...risks),
+              max: Math.max(...risks),
+              avg: risks.reduce((sum, r) => sum + r, 0) / risks.length,
+              distribution: {
+                risk1to3: risks.filter(r => r >= 1 && r <= 3).length,
+                risk4to6: risks.filter(r => r > 3 && r <= 6).length,
+                risk7to8: risks.filter(r => r > 6 && r <= 8).length,
+                risk9to10: risks.filter(r => r > 8 && r <= 10).length,
+              }
+            };
+            
+            const lastDataPoint = finalData[finalData.length - 1];
+            setData(finalData);
+            setCurrentPrice(lastDataPoint.price);
+            setCurrentRisk(lastDataPoint.risk);
+            setDataSource('CSV + Latest API');
+            setRiskStats(riskStats);
+            
+          } catch (latestError) {
+            console.warn(`Latest API failed for ${symbol}, using CSV data only:`, latestError);
+            // Use CSV data as-is
+            const risks = historicalData.map(d => d.risk);
+            const riskStats: RiskStats = {
+              min: Math.min(...risks),
+              max: Math.max(...risks),
+              avg: risks.reduce((sum, r) => sum + r, 0) / risks.length,
+              distribution: {
+                risk1to3: risks.filter(r => r >= 1 && r <= 3).length,
+                risk4to6: risks.filter(r => r > 3 && r <= 6).length,
+                risk7to8: risks.filter(r => r > 6 && r <= 8).length,
+                risk9to10: risks.filter(r => r > 8 && r <= 10).length,
+              }
+            };
+            
+            const lastPoint = historicalData[historicalData.length - 1];
+            setData(historicalData);
+            setCurrentPrice(lastPoint.price);
+            setCurrentRisk(lastPoint.risk);
+            setDataSource('CSV Historical Data');
+            setRiskStats(riskStats);
+          }
+          
+          return;
+        }
+        
+        // Fallback to original logic if CSV not found
+        console.log(`No CSV data found for ${symbol}, falling back to full API call...`);
+        
+        // Check if we should use NVDA CSV (for backward compatibility)
         if (useCSV && symbol === 'NVDA') {
           // Try to load from CSV first
           try {

@@ -11,6 +11,11 @@ export class YahooFinanceProvider implements DataProvider {
   async fetchData(options: DataProviderOptions): Promise<PriceData[]> {
     const { symbol, startDate, endDate, interval = 'daily' } = options;
     
+    // Handle cryptocurrency symbols - Yahoo Finance uses BTC-USD format
+    const yahooSymbol = ['BTC', 'ETH', 'DOGE', 'ADA', 'SOL'].includes(symbol) 
+      ? `${symbol}-USD` 
+      : symbol;
+    
     // Default dates if not provided
     const end = endDate || new Date();
     const start = startDate || new Date(1999, 0, 1); // Default to 1999
@@ -21,7 +26,7 @@ export class YahooFinanceProvider implements DataProvider {
     // Convert interval to Yahoo format
     const yahooInterval = interval === 'weekly' ? '1wk' : '1d';
     
-    const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=${yahooInterval}`;
+    const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?period1=${period1}&period2=${period2}&interval=${yahooInterval}`;
     
     try {
       console.log(`Fetching ${symbol} data from Yahoo Finance...`);

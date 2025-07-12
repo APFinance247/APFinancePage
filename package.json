@@ -11,7 +11,9 @@
     "update-csv": "node scripts/generate-csv.js",
     "update-csv-daily": "node scripts/update-csv-incremental.js",
     "setup-automation": "bash scripts/setup-daily-update.sh",
-    "generate-stock-csv": "node scripts/generate-stock-csv.js"
+    "generate-stock-csv": "node scripts/generate-stock-csv.js",
+    "generate-all-csvs": "node scripts/generate-all-stock-csvs.js",
+    "update-all-csvs": "node scripts/update-all-stock-csvs.js"
   },
   "dependencies": {
     "@vercel/analytics": "^1.5.0",
