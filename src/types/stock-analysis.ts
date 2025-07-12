@@ -148,5 +148,17 @@ export const STOCK_CONFIGS: Record<string, StockConfig> = {
         nearEMA: -0.08
       }
     }
+  },
+  'BTC-USD': {
+    symbol: 'BTC-USD',
+    name: 'Bitcoin',
+    riskConfig: {
+      algorithm: 'ema-focused',
+      riskThresholds: {
+        yellowTerritory: 0.20,
+        elevatedTerritory: 0.10,
+        nearEMA: -0.08
+      }
+    }
   }
 }; 
