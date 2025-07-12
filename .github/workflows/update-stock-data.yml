@@ -1,0 +1,63 @@
+name: Update Stock Data
+
+on:
+  schedule:
+    # Run daily at 8:00 PM CST (2:00 AM UTC)
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Allow manual triggering
+
+permissions:
+  contents: write  # Required for pushing commits
+
+jobs:
+  update-csv:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Build application
+      run: npm run build
+      env:
+        SKIP_ENV_VALIDATION: true
+    
+    - name: Start Next.js server
+      run: |
+        npm run start &
+        sleep 15  # Wait for server to fully start
+        # Check if server is running
+        curl -f http://localhost:3000 || exit 1
+      env:
+        PORT: 3000
+    
+    - name: Update all stock CSVs
+      run: npm run update-all-csvs
+      env:
+        API_BASE_URL: http://localhost:3000
+      continue-on-error: false
+    
+    - name: Commit and push changes
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        
+        # Check if there are changes
+        if git diff --quiet; then
+          echo "No changes to commit"
+        else
+          git add public/stock-data/*.csv public/nvda-historical-data.csv
+          git commit -m "chore: update stock data CSVs [$(date +'%Y-%m-%d')]"
+          git push
+        fi 

@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import StockSelector from "@/components/StockSelector";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
-  title: "NVDA Daily Risk Analysis Chart",
-  description: "Interactive daily risk analysis chart for NVIDIA stock with color-coded risk levels based on moving averages",
+  title: "Stock Risk Analysis Chart",
+  description: "Interactive daily risk analysis chart for various stocks with color-coded risk levels based on moving averages",
 };
 
 export default function RootLayout({
@@ -14,7 +16,9 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="bg-gray-900 text-white antialiased">
-        {children}
+        <StockSelector />
+        <main>{children}</main>
+        <Analytics />
       </body>
     </html>
   );

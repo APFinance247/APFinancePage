@@ -1,5 +1,10 @@
-import NVDARiskChart from '@/components/NVDARiskChart';
+import StockRiskChart from '@/components/StockRiskChart';
 
 export default function Home() {
-  return <NVDARiskChart />;
+  return (
+    <div>
+      {/* NVDA Chart (default) */}
+      <StockRiskChart symbol="NVDA" useCSV={true} />
+    </div>
+  );
 }
