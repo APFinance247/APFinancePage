@@ -149,6 +149,19 @@ export const STOCK_CONFIGS: Record<string, StockConfig> = {
       }
     }
   },
+  META: {
+    symbol: 'META',
+    name: 'Meta Platforms Inc.',
+    riskConfig: {
+      algorithm: 'ema-focused',
+      // Meta can be quite volatile
+      riskThresholds: {
+        yellowTerritory: 0.18, // 18% for social media stock volatility
+        elevatedTerritory: 0.10,
+        nearEMA: -0.08
+      }
+    }
+  },
   BTC: {
     symbol: 'BTC',
     name: 'Bitcoin',
@@ -159,6 +172,32 @@ export const STOCK_CONFIGS: Record<string, StockConfig> = {
         yellowTerritory: 0.25, // 25% for crypto volatility
         elevatedTerritory: 0.15,
         nearEMA: -0.10
+      }
+    }
+  },
+  ETH: {
+    symbol: 'ETH',
+    name: 'Ethereum',
+    riskConfig: {
+      algorithm: 'ema-focused',
+      // Ethereum typically has similar volatility to Bitcoin
+      riskThresholds: {
+        yellowTerritory: 0.25, // 25% for crypto volatility
+        elevatedTerritory: 0.15,
+        nearEMA: -0.10
+      }
+    }
+  },
+  UNH: {
+    symbol: 'UNH',
+    name: 'UnitedHealth Group Inc.',
+    riskConfig: {
+      algorithm: 'ema-focused',
+      // Healthcare stock with moderate volatility
+      riskThresholds: {
+        yellowTerritory: 0.15, // 15% for healthcare stock
+        elevatedTerritory: 0.08,
+        nearEMA: -0.05
       }
     }
   }
