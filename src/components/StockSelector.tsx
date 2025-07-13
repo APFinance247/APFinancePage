@@ -96,6 +96,15 @@ export default function StockSelector() {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
           <h2 className="text-white font-semibold text-sm sm:text-base">Select Stock:</h2>
           <div className="flex gap-1 sm:gap-2 flex-wrap w-full sm:w-auto justify-start sm:justify-end">
+            {/* See All Button */}
+            <Link
+              href="/stocks"
+              className="px-2 sm:px-3 py-1 rounded text-xs sm:text-sm font-medium transition-all duration-200 w-16 sm:w-20 text-center bg-gray-700 text-gray-300 hover:bg-gray-600"
+              title="View all available stocks"
+            >
+              <span className="block sm:inline">See All</span>
+            </Link>
+            
             {Object.keys(STOCK_CONFIGS).map((symbol) => {
               const isActive = symbol === activeSymbol;
               const riskData = stockRisks[symbol];

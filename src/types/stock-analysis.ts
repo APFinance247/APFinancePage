@@ -187,5 +187,18 @@ export const STOCK_CONFIGS: Record<string, StockConfig> = {
         nearEMA: -0.10
       }
     }
+  },
+  UNH: {
+    symbol: 'UNH',
+    name: 'UnitedHealth Group Inc.',
+    riskConfig: {
+      algorithm: 'ema-focused',
+      // Healthcare stock with moderate volatility
+      riskThresholds: {
+        yellowTerritory: 0.15, // 15% for healthcare stock
+        elevatedTerritory: 0.08,
+        nearEMA: -0.05
+      }
+    }
   }
 }; 

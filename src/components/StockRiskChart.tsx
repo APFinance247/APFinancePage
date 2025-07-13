@@ -775,9 +775,10 @@ export default function StockRiskChart({
         }
       },
       interaction: {
-        intersect: true,
-        mode: 'point',
+        intersect: false,
+        mode: 'nearest',
         includeInvisible: false,
+        axis: 'xy',
       },
       onHover: isMobileDevice() ? undefined : (event, elements) => {
         const target = event.native?.target as HTMLCanvasElement;
@@ -798,6 +799,10 @@ export default function StockRiskChart({
           borderWidth: 1,
           cornerRadius: 8,
           displayColors: false,
+          filter: (tooltipItem) => {
+            // Only show tooltips for the main dataset (index 0)
+            return tooltipItem.datasetIndex === 0;
+          },
           callbacks: {
             title: (context) => {
               const dataPoint = context[0].raw as { x: number };
