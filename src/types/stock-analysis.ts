@@ -149,12 +149,38 @@ export const STOCK_CONFIGS: Record<string, StockConfig> = {
       }
     }
   },
+  META: {
+    symbol: 'META',
+    name: 'Meta Platforms Inc.',
+    riskConfig: {
+      algorithm: 'ema-focused',
+      // Meta can be quite volatile
+      riskThresholds: {
+        yellowTerritory: 0.18, // 18% for social media stock volatility
+        elevatedTerritory: 0.10,
+        nearEMA: -0.08
+      }
+    }
+  },
   BTC: {
     symbol: 'BTC',
     name: 'Bitcoin',
     riskConfig: {
       algorithm: 'ema-focused',
       // Cryptocurrencies have much higher volatility
+      riskThresholds: {
+        yellowTerritory: 0.25, // 25% for crypto volatility
+        elevatedTerritory: 0.15,
+        nearEMA: -0.10
+      }
+    }
+  },
+  ETH: {
+    symbol: 'ETH',
+    name: 'Ethereum',
+    riskConfig: {
+      algorithm: 'ema-focused',
+      // Ethereum typically has similar volatility to Bitcoin
       riskThresholds: {
         yellowTerritory: 0.25, // 25% for crypto volatility
         elevatedTerritory: 0.15,

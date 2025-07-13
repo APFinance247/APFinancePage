@@ -181,9 +181,27 @@ const STOCK_CONFIGS = {
       nearEMA: -0.08
     }
   },
+  META: {
+    symbol: 'META',
+    name: 'Meta Platforms Inc.',
+    riskThresholds: {
+      yellowTerritory: 0.18,
+      elevatedTerritory: 0.10,
+      nearEMA: -0.08
+    }
+  },
   BTC: {
     symbol: 'BTC',
     name: 'Bitcoin',
+    riskThresholds: {
+      yellowTerritory: 0.25,
+      elevatedTerritory: 0.15,
+      nearEMA: -0.10
+    }
+  },
+  ETH: {
+    symbol: 'ETH',
+    name: 'Ethereum',
     riskThresholds: {
       yellowTerritory: 0.25,
       elevatedTerritory: 0.15,
