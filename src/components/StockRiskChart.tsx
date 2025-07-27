@@ -754,28 +754,49 @@ export default function StockRiskChart({
 
   // Chart options
   const chartOptions: ChartOptions<'scatter'> = useMemo(() => {
-    // Calculate 3-year default view
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setFullYear(endDate.getFullYear() - 3);
-    
-    // Filter data for the 3-year view to calculate proper y-axis bounds
-    const threeYearData = data.filter(point => 
-      point.timestamp >= startDate.getTime() && point.timestamp <= endDate.getTime()
-    );
-    
+    // Check if data spans at least 3 years to determine initial view
+    let initialXMin: number | undefined;
+    let initialXMax: number | undefined;
     let initialYMin: number | undefined;
     let initialYMax: number | undefined;
     
-    if (threeYearData.length > 0) {
-      const threeYearPrices = threeYearData.map(d => d.price);
-      const minPrice = Math.min(...threeYearPrices);
-      const maxPrice = Math.max(...threeYearPrices);
-      const priceRange = maxPrice - minPrice;
-      const pricePadding = priceRange * 0.1;
+    if (data.length > 0) {
+      const dataTimestamps = data.map(d => d.timestamp);
+      const oldestDataTime = Math.min(...dataTimestamps);
+      const newestDataTime = Math.max(...dataTimestamps);
+      const dataSpanYears = (newestDataTime - oldestDataTime) / (365 * 24 * 60 * 60 * 1000);
       
-      initialYMin = Math.max(0, minPrice - pricePadding);
-      initialYMax = maxPrice + pricePadding;
+      if (dataSpanYears < 3) {
+        // Data is less than 3 years, default to all time view
+        initialXMin = undefined;
+        initialXMax = undefined;
+        initialYMin = undefined;
+        initialYMax = undefined;
+      } else {
+        // Data spans 3+ years, default to 3-year view
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setFullYear(endDate.getFullYear() - 3);
+        
+        initialXMin = startDate.getTime();
+        initialXMax = endDate.getTime();
+        
+        // Filter data for the 3-year view to calculate proper y-axis bounds
+        const threeYearData = data.filter(point => 
+          point.timestamp >= startDate.getTime() && point.timestamp <= endDate.getTime()
+        );
+        
+        if (threeYearData.length > 0) {
+          const threeYearPrices = threeYearData.map(d => d.price);
+          const minPrice = Math.min(...threeYearPrices);
+          const maxPrice = Math.max(...threeYearPrices);
+          const priceRange = maxPrice - minPrice;
+          const pricePadding = priceRange * 0.1;
+          
+          initialYMin = Math.max(0, minPrice - pricePadding);
+          initialYMax = maxPrice + pricePadding;
+        }
+      }
     }
     
     return {
@@ -892,8 +913,8 @@ export default function StockRiskChart({
       scales: {
         x: {
           type: 'time',
-          min: data.length > 0 ? startDate.getTime() : undefined,
-          max: data.length > 0 ? endDate.getTime() : undefined,
+          min: initialXMin,
+          max: initialXMax,
           time: {
             unit: 'month',
             displayFormats: {
@@ -1018,14 +1039,32 @@ export default function StockRiskChart({
                 onClick={resetZoom}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm font-medium transition-all duration-200"
               >
-                Reset Zoom (3Y)
+                Reset Zoom ({(() => {
+                  if (data.length === 0) return '3Y';
+                  const dataTimestamps = data.map(d => d.timestamp);
+                  const oldestDataTime = Math.min(...dataTimestamps);
+                  const newestDataTime = Math.max(...dataTimestamps);
+                  const dataSpanYears = (newestDataTime - oldestDataTime) / (365 * 24 * 60 * 60 * 1000);
+                  return dataSpanYears < 3 ? 'All' : '3Y';
+                })()})
               </button>
-              <button
-                onClick={zoomToAllTime}
-                className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded text-sm font-medium transition-all duration-200"
-              >
-                All Time
-              </button>
+              {(() => {
+                if (data.length === 0) return null;
+                const dataTimestamps = data.map(d => d.timestamp);
+                const oldestDataTime = Math.min(...dataTimestamps);
+                const newestDataTime = Math.max(...dataTimestamps);
+                const dataSpanYears = (newestDataTime - oldestDataTime) / (365 * 24 * 60 * 60 * 1000);
+                
+                // Only show "All Time" button if data spans 3+ years
+                return dataSpanYears >= 3 ? (
+                  <button
+                    onClick={zoomToAllTime}
+                    className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded text-sm font-medium transition-all duration-200"
+                  >
+                    All Time
+                  </button>
+                ) : null;
+              })()}
             </div>
             <div className="flex gap-2">
               <button
