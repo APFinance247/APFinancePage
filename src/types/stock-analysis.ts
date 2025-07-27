@@ -200,5 +200,23 @@ export const STOCK_CONFIGS: Record<string, StockConfig> = {
         nearEMA: -0.05
       }
     }
+  },
+  GRAL: {
+    symbol: 'GRAL',
+    name: 'GRAIL, Inc.',
+    riskConfig: {
+      algorithm: 'ema-focused',
+      // Biotech stock with higher volatility
+      riskThresholds: {
+        yellowTerritory: 0.20, // 20% for biotech volatility
+        elevatedTerritory: 0.10,
+        nearEMA: -0.08
+      }
+    }
   }
-}; 
+};
+
+// Top navigation stocks (main selector buttons)
+export const TOP_NAVIGATION_STOCKS = [
+  'VOO', 'NVDA', 'MSFT', 'AAPL', 'GOOGL', 'AMZN', 'TSLA', 'META', 'BTC', 'ETH', 'UNH'
+] as const; 

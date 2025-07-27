@@ -220,6 +220,15 @@ const STOCK_CONFIGS = {
       elevatedTerritory: 0.08,
       nearEMA: -0.05
     }
+  },
+  GRAL: {
+    symbol: 'GRAL',
+    name: 'GRAIL, Inc.',
+    riskThresholds: {
+      yellowTerritory: 0.20,
+      elevatedTerritory: 0.10,
+      nearEMA: -0.08
+    }
   }
 };
 

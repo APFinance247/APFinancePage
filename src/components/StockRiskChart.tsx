@@ -16,6 +16,7 @@ import {
 } from 'chart.js';
 import { StockDataPoint, RiskStats, StockAnalysisResponse } from '@/types/stock-analysis';
 import { StockAnalysisService, stockAnalysisService } from '@/lib/stock-analysis-service';
+import { calculateRiskFromDeviations, loadDataFromStockCSV } from '@/lib/stock-risk-utils';
 
 // Dynamic import for components that need window
 const Scatter = dynamic(() => import('react-chartjs-2').then((mod) => mod.Scatter), {
@@ -33,44 +34,6 @@ interface StockRiskChartProps {
   useCSV?: boolean; // For backward compatibility with NVDA CSV
 }
 
-// Load historical data from individual stock CSV file
-async function loadDataFromStockCSV(symbol: string): Promise<StockDataPoint[]> {
-  try {
-    const response = await fetch(`/stock-data/${symbol.toUpperCase()}.csv`);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch CSV for ${symbol}: ${response.statusText}`);
-    }
-    const csvText = await response.text();
-    
-    const lines = csvText.split('\n').filter(line => line.trim());
-    const dataLines = lines.slice(1); // Skip header
-    
-    const historicalData = dataLines
-      .map(line => {
-        const [dateStr, priceStr, timestampStr, ema8Str, ema21Str, sma50Str, sma100Str, sma200Str, sma400Str, riskStr] = line.split(',');
-        
-        return {
-          date: new Date(dateStr),
-          price: parseFloat(priceStr) || 0,
-          timestamp: parseInt(timestampStr) || 0,
-          ema8: parseFloat(ema8Str) || 0,
-          ema21: parseFloat(ema21Str) || 0,
-          sma50: parseFloat(sma50Str) || 0,
-          sma100: parseFloat(sma100Str) || 0,
-          sma200: parseFloat(sma200Str) || 0,
-          sma400: parseFloat(sma400Str) || 0,
-          risk: parseFloat(riskStr) || 5,
-        };
-      })
-      .filter(item => !isNaN(item.price) && item.price > 0);
-    
-    console.log(`✅ Loaded ${historicalData.length} pre-calculated data points for ${symbol} from CSV`);
-    return historicalData;
-  } catch (error) {
-    console.error(`Error loading historical data for ${symbol} from CSV:`, error);
-    return [];
-  }
-}
 
 // Time range interface
 interface TimeRange {
@@ -258,7 +221,7 @@ export default function StockRiskChart({
     initializeChart();
   }, []);
 
-  // Reset zoom to past 3 years
+  // Reset zoom to past 3 years or all time if data is shorter
   const resetZoom = useCallback(() => {
     if (chartRef.current && data.length > 0) {
       setHasCustomZoom(true);
@@ -266,30 +229,49 @@ export default function StockRiskChart({
       const xScale = chart.scales.x;
       const yScale = chart.scales.y;
 
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setFullYear(endDate.getFullYear() - 3);
+      // Check if data spans at least 3 years
+      const dataTimestamps = data.map(d => d.timestamp);
+      const oldestDataTime = Math.min(...dataTimestamps);
+      const newestDataTime = Math.max(...dataTimestamps);
+      const dataSpanYears = (newestDataTime - oldestDataTime) / (365 * 24 * 60 * 60 * 1000);
 
-      xScale.options.min = startDate.getTime();
-      xScale.options.max = endDate.getTime();
-
-      // Explicitly set y-axis range for the visible data
-      const visibleData = data.filter(point => 
-        point.timestamp >= startDate.getTime() && point.timestamp <= endDate.getTime()
-      );
-
-      if (visibleData.length > 0) {
-        const visiblePrices = visibleData.map(d => d.price);
-        const minPrice = Math.min(...visiblePrices);
-        const maxPrice = Math.max(...visiblePrices);
-        const priceRange = maxPrice - minPrice;
-        const pricePadding = priceRange * 0.1;
-        
-        yScale.options.min = Math.max(0, minPrice - pricePadding);
-        yScale.options.max = maxPrice + pricePadding;
-      } else {
+      if (dataSpanYears < 3) {
+        // Data is less than 3 years, zoom to all time
+        xScale.options.min = undefined;
+        xScale.options.max = undefined;
         yScale.options.min = undefined;
         yScale.options.max = undefined;
+      } else {
+        // Data spans 3+ years, zoom to past 3 years
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setFullYear(endDate.getFullYear() - 3);
+
+        xScale.options.min = startDate.getTime();
+        xScale.options.max = endDate.getTime();
+
+        // Explicitly set y-axis range for the visible data
+        const visibleData = data.filter(point => 
+          point.timestamp >= startDate.getTime() && point.timestamp <= endDate.getTime()
+        );
+
+        if (visibleData.length > 0) {
+          const visiblePrices = visibleData.map(d => d.price);
+          const minPrice = Math.min(...visiblePrices);
+          const maxPrice = Math.max(...visiblePrices);
+          const priceRange = maxPrice - minPrice;
+          // Use tighter padding for better fitting
+          const paddingPercent = priceRange < 10 ? 0.02 : priceRange < 100 ? 0.03 : 0.05;
+          const pricePadding = priceRange * paddingPercent;
+          
+          const suggestedMin = Math.max(0, minPrice - pricePadding);
+          const suggestedMax = maxPrice + pricePadding;
+          yScale.options.min = suggestedMin;
+          yScale.options.max = suggestedMax;
+        } else {
+          yScale.options.min = undefined;
+          yScale.options.max = undefined;
+        }
       }
       
       chart.update('none');
@@ -409,7 +391,9 @@ export default function StockRiskChart({
       const minPrice = Math.min(...visiblePrices);
       const maxPrice = Math.max(...visiblePrices);
       const priceRange = maxPrice - minPrice;
-      const pricePadding = priceRange * 0.1;
+      // Use tighter padding for better fitting
+      const paddingPercent = priceRange < 10 ? 0.02 : priceRange < 100 ? 0.03 : 0.05;
+      const pricePadding = priceRange * paddingPercent;
       
       yScale.options.min = Math.max(0, minPrice - pricePadding);
       yScale.options.max = maxPrice + pricePadding;
@@ -464,13 +448,24 @@ export default function StockRiskChart({
             if (existingIndex >= 0) {
               // Update existing data point with latest price if different
               if (Math.abs(historicalData[existingIndex].price - latestResult.currentPrice) > 0.01) {
-                // Need to recalculate risk for the updated price
-                // For now, we'll keep the existing risk from CSV
+                // Update price and recalculate risk
                 finalData[existingIndex] = {
                   ...historicalData[existingIndex],
                   price: latestResult.currentPrice,
                 };
-                console.log(`Updated existing data point for ${symbol} with latest price`);
+                
+                // Recalculate risk for updated price
+                const point = finalData[existingIndex];
+                const dev8EMA = point.ema8 > 0 ? (point.price - point.ema8) / point.ema8 : 0;
+                const dev21EMA = point.ema21 > 0 ? (point.price - point.ema21) / point.ema21 : 0;
+                const dev50SMA = point.sma50 > 0 ? (point.price - point.sma50) / point.sma50 : 0;
+                const dev100SMA = point.sma100 > 0 ? (point.price - point.sma100) / point.sma100 : 0;
+                const dev200SMA = point.sma200 > 0 ? (point.price - point.sma200) / point.sma200 : 0;
+                
+                const recalculatedRisk = calculateRiskFromDeviations(dev8EMA, dev21EMA, dev50SMA, dev100SMA, dev200SMA);
+                finalData[existingIndex].risk = Math.round(recalculatedRisk * 100) / 100;
+                
+                console.log(`Updated existing data point for ${symbol} with latest price and recalculated risk: ${finalData[existingIndex].risk}`);
               }
             } else {
               // Add new data point - we'll need to calculate indicators for it
@@ -486,11 +481,22 @@ export default function StockRiskChart({
                 sma100: lastPoint.sma100,
                 sma200: lastPoint.sma200,
                 sma400: lastPoint.sma400,
-                risk: lastPoint.risk, // Approximate with last known risk
+                risk: lastPoint.risk, // Will be recalculated below
               };
               finalData.push(newDataPoint);
               console.log(`Added new latest data point for ${symbol}`);
             }
+            
+            // Recalculate risk for the last data point to ensure accuracy
+            const lastPoint = finalData[finalData.length - 1];
+            const dev8EMA = lastPoint.ema8 > 0 ? (lastPoint.price - lastPoint.ema8) / lastPoint.ema8 : 0;
+            const dev21EMA = lastPoint.ema21 > 0 ? (lastPoint.price - lastPoint.ema21) / lastPoint.ema21 : 0;
+            const dev50SMA = lastPoint.sma50 > 0 ? (lastPoint.price - lastPoint.sma50) / lastPoint.sma50 : 0;
+            const dev100SMA = lastPoint.sma100 > 0 ? (lastPoint.price - lastPoint.sma100) / lastPoint.sma100 : 0;
+            const dev200SMA = lastPoint.sma200 > 0 ? (lastPoint.price - lastPoint.sma200) / lastPoint.sma200 : 0;
+            
+            const recalculatedRisk = calculateRiskFromDeviations(dev8EMA, dev21EMA, dev50SMA, dev100SMA, dev200SMA);
+            finalData[finalData.length - 1].risk = Math.round(recalculatedRisk * 100) / 100;
             
             // Calculate risk stats
             const risks = finalData.map(d => d.risk);
@@ -647,7 +653,9 @@ export default function StockRiskChart({
     const minPrice = Math.min(...prices);
     const maxPrice = Math.max(...prices);
     const priceRange = maxPrice - minPrice;
-    const pricePadding = priceRange * 0.05;
+    // Use adaptive padding for better fitting
+    const paddingPercent = priceRange < 10 ? 0.02 : priceRange < 100 ? 0.05 : 0.08;
+    const pricePadding = priceRange * paddingPercent;
     
     const minTime = Math.min(...timestamps);
     const maxTime = Math.max(...timestamps);
@@ -739,28 +747,51 @@ export default function StockRiskChart({
 
   // Chart options
   const chartOptions: ChartOptions<'scatter'> = useMemo(() => {
-    // Calculate 3-year default view
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setFullYear(endDate.getFullYear() - 3);
-    
-    // Filter data for the 3-year view to calculate proper y-axis bounds
-    const threeYearData = data.filter(point => 
-      point.timestamp >= startDate.getTime() && point.timestamp <= endDate.getTime()
-    );
-    
+    // Check if data spans at least 3 years to determine initial view
+    let initialXMin: number | undefined;
+    let initialXMax: number | undefined;
     let initialYMin: number | undefined;
     let initialYMax: number | undefined;
     
-    if (threeYearData.length > 0) {
-      const threeYearPrices = threeYearData.map(d => d.price);
-      const minPrice = Math.min(...threeYearPrices);
-      const maxPrice = Math.max(...threeYearPrices);
-      const priceRange = maxPrice - minPrice;
-      const pricePadding = priceRange * 0.1;
+    if (data.length > 0) {
+      const dataTimestamps = data.map(d => d.timestamp);
+      const oldestDataTime = Math.min(...dataTimestamps);
+      const newestDataTime = Math.max(...dataTimestamps);
+      const dataSpanYears = (newestDataTime - oldestDataTime) / (365 * 24 * 60 * 60 * 1000);
       
-      initialYMin = Math.max(0, minPrice - pricePadding);
-      initialYMax = maxPrice + pricePadding;
+      if (dataSpanYears < 3) {
+        // Data is less than 3 years, default to all time view
+        initialXMin = undefined;
+        initialXMax = undefined;
+        initialYMin = undefined;
+        initialYMax = undefined;
+      } else {
+        // Data spans 3+ years, default to 3-year view
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setFullYear(endDate.getFullYear() - 3);
+        
+        initialXMin = startDate.getTime();
+        initialXMax = endDate.getTime();
+        
+        // Filter data for the 3-year view to calculate proper y-axis bounds
+        const threeYearData = data.filter(point => 
+          point.timestamp >= startDate.getTime() && point.timestamp <= endDate.getTime()
+        );
+        
+        if (threeYearData.length > 0) {
+          const threeYearPrices = threeYearData.map(d => d.price);
+          const minPrice = Math.min(...threeYearPrices);
+          const maxPrice = Math.max(...threeYearPrices);
+          const priceRange = maxPrice - minPrice;
+          // Use smaller padding for better fitting
+          const paddingPercent = priceRange < 10 ? 0.02 : priceRange < 100 ? 0.03 : 0.05;
+          const pricePadding = priceRange * paddingPercent;
+          
+          initialYMin = Math.max(0, minPrice - pricePadding);
+          initialYMax = maxPrice + pricePadding;
+        }
+      }
     }
     
     return {
@@ -862,10 +893,14 @@ export default function StockRiskChart({
                   const minPrice = Math.min(...visiblePrices);
                   const maxPrice = Math.max(...visiblePrices);
                   const priceRange = maxPrice - minPrice;
-                  const pricePadding = priceRange * 0.1;
+                  // Use tighter padding for better fitting
+                  const paddingPercent = priceRange < 10 ? 0.02 : priceRange < 100 ? 0.03 : 0.05;
+                  const pricePadding = priceRange * paddingPercent;
                   
-                  yScale.options.min = Math.max(0, minPrice - pricePadding);
-                  yScale.options.max = maxPrice + pricePadding;
+                  const suggestedMin = Math.max(0, minPrice - pricePadding);
+                  const suggestedMax = maxPrice + pricePadding;
+                  yScale.options.min = suggestedMin;
+                  yScale.options.max = suggestedMax;
                   
                   chart.update('none');
                 }
@@ -877,8 +912,8 @@ export default function StockRiskChart({
       scales: {
         x: {
           type: 'time',
-          min: data.length > 0 ? startDate.getTime() : undefined,
-          max: data.length > 0 ? endDate.getTime() : undefined,
+          min: initialXMin,
+          max: initialXMax,
           time: {
             unit: 'month',
             displayFormats: {
@@ -913,6 +948,8 @@ export default function StockRiskChart({
           type: isLogScale ? 'logarithmic' : 'linear',
           min: initialYMin,
           max: initialYMax,
+          beginAtZero: false,
+          grace: 0,
           grid: {
             color: 'rgba(75, 85, 99, 0.3)',
           },
@@ -921,6 +958,16 @@ export default function StockRiskChart({
             font: {
               size: 12,
             },
+            maxTicksLimit: 8,
+            stepSize: (() => {
+              if (data.length === 0 || !initialYMin || !initialYMax) return undefined;
+              const visibleRange = initialYMax - initialYMin;
+              // Calculate step size based on visible range, not all data
+              if (visibleRange > 1000) return Math.ceil(visibleRange / 8 / 100) * 100;
+              if (visibleRange > 100) return Math.ceil(visibleRange / 8 / 10) * 10;
+              if (visibleRange > 10) return Math.ceil(visibleRange / 8);
+              return Math.ceil(visibleRange / 8 * 10) / 10;
+            })(),
             callback: function(value) {
               const numValue = Number(value);
               if (numValue >= 1000) return `$${(numValue / 1000).toFixed(0)}K`;
@@ -1003,14 +1050,32 @@ export default function StockRiskChart({
                 onClick={resetZoom}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm font-medium transition-all duration-200"
               >
-                Reset Zoom (3Y)
+                Reset Zoom ({(() => {
+                  if (data.length === 0) return '3Y';
+                  const dataTimestamps = data.map(d => d.timestamp);
+                  const oldestDataTime = Math.min(...dataTimestamps);
+                  const newestDataTime = Math.max(...dataTimestamps);
+                  const dataSpanYears = (newestDataTime - oldestDataTime) / (365 * 24 * 60 * 60 * 1000);
+                  return dataSpanYears < 3 ? 'All' : '3Y';
+                })()})
               </button>
-              <button
-                onClick={zoomToAllTime}
-                className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded text-sm font-medium transition-all duration-200"
-              >
-                All Time
-              </button>
+              {(() => {
+                if (data.length === 0) return null;
+                const dataTimestamps = data.map(d => d.timestamp);
+                const oldestDataTime = Math.min(...dataTimestamps);
+                const newestDataTime = Math.max(...dataTimestamps);
+                const dataSpanYears = (newestDataTime - oldestDataTime) / (365 * 24 * 60 * 60 * 1000);
+                
+                // Only show "All Time" button if data spans 3+ years
+                return dataSpanYears >= 3 ? (
+                  <button
+                    onClick={zoomToAllTime}
+                    className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded text-sm font-medium transition-all duration-200"
+                  >
+                    All Time
+                  </button>
+                ) : null;
+              })()}
             </div>
             <div className="flex gap-2">
               <button
