@@ -5,6 +5,8 @@ import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { STOCK_CONFIGS, TOP_NAVIGATION_STOCKS } from '@/types/stock-analysis';
 import { getRiskColor } from '@/lib/risk-analysis/risk-calculator';
+import { getCurrentRiskAndPrice } from '@/lib/stock-risk-utils';
+
 
 interface StockRiskData {
   symbol: string;
@@ -29,18 +31,15 @@ export default function StockSelector() {
       try {
         const risks: Record<string, StockRiskData> = {};
         
-        // Fetch risk data for each stock in top navigation
+        // Fetch risk data for each stock in top navigation using CSV + latest API approach
         const promises = TOP_NAVIGATION_STOCKS.map(async (symbol) => {
           try {
-            const response = await fetch(`/api/stock-analysis?symbol=${symbol}`);
-            if (response.ok) {
-              const data = await response.json();
-              risks[symbol] = {
-                symbol,
-                currentRisk: data.currentRisk,
-                currentPrice: data.currentPrice
-              };
-            }
+            const data = await getCurrentRiskAndPrice(symbol);
+            risks[symbol] = {
+              symbol,
+              currentRisk: data.currentRisk,
+              currentPrice: data.currentPrice
+            };
           } catch (error) {
             console.error(`Error fetching risk for ${symbol}:`, error);
             // Set default risk if fetch fails
@@ -73,19 +72,25 @@ export default function StockSelector() {
         : 'bg-gray-700 text-gray-300 hover:bg-gray-600';
     }
 
+    // Use consistent dark background with colored text
     const riskColor = getRiskColor(riskData.currentRisk);
     
     if (isActive) {
-      return `text-white font-semibold border-2 border-white shadow-lg`;
+      return `font-semibold border-2 border-white shadow-lg`;
     } else {
-      return `text-white hover:opacity-80 border border-gray-500`;
+      return `hover:opacity-80 border border-gray-500`;
     }
   };
 
   const getRiskBackgroundColor = (symbol: string) => {
+    // Always use dark background for consistency
+    return '#374151'; // Gray-700
+  };
+
+  const getRiskTextColor = (symbol: string) => {
     const riskData = stockRisks[symbol];
     if (!riskData || loading) {
-      return '#374151'; // Default gray
+      return '#9ca3af'; // Default gray
     }
     return getRiskColor(riskData.currentRisk);
   };
@@ -114,7 +119,10 @@ export default function StockSelector() {
                   key={symbol}
                   href={symbol === 'NVDA' ? '/' : `/stocks/${symbol.toLowerCase()}`}
                   className={`px-1 sm:px-2 py-1 rounded text-xs sm:text-sm font-medium transition-all duration-200 min-w-16 sm:min-w-20 text-center overflow-hidden ${getRiskButtonStyle(symbol, isActive)}`}
-                  style={{ backgroundColor: getRiskBackgroundColor(symbol) }}
+                  style={{ 
+                    backgroundColor: getRiskBackgroundColor(symbol),
+                    color: getRiskTextColor(symbol)
+                  }}
                   title={riskData ? `${symbol} Risk: ${riskData.currentRisk.toFixed(1)}` : 'Loading...'}
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-0 sm:gap-1">
