@@ -258,7 +258,7 @@ export default function StockRiskChart({
     initializeChart();
   }, []);
 
-  // Reset zoom to past 3 years
+  // Reset zoom to past 3 years or all time if data is shorter
   const resetZoom = useCallback(() => {
     if (chartRef.current && data.length > 0) {
       setHasCustomZoom(true);
@@ -266,30 +266,45 @@ export default function StockRiskChart({
       const xScale = chart.scales.x;
       const yScale = chart.scales.y;
 
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setFullYear(endDate.getFullYear() - 3);
+      // Check if data spans at least 3 years
+      const dataTimestamps = data.map(d => d.timestamp);
+      const oldestDataTime = Math.min(...dataTimestamps);
+      const newestDataTime = Math.max(...dataTimestamps);
+      const dataSpanYears = (newestDataTime - oldestDataTime) / (365 * 24 * 60 * 60 * 1000);
 
-      xScale.options.min = startDate.getTime();
-      xScale.options.max = endDate.getTime();
-
-      // Explicitly set y-axis range for the visible data
-      const visibleData = data.filter(point => 
-        point.timestamp >= startDate.getTime() && point.timestamp <= endDate.getTime()
-      );
-
-      if (visibleData.length > 0) {
-        const visiblePrices = visibleData.map(d => d.price);
-        const minPrice = Math.min(...visiblePrices);
-        const maxPrice = Math.max(...visiblePrices);
-        const priceRange = maxPrice - minPrice;
-        const pricePadding = priceRange * 0.1;
-        
-        yScale.options.min = Math.max(0, minPrice - pricePadding);
-        yScale.options.max = maxPrice + pricePadding;
-      } else {
+      if (dataSpanYears < 3) {
+        // Data is less than 3 years, zoom to all time
+        xScale.options.min = undefined;
+        xScale.options.max = undefined;
         yScale.options.min = undefined;
         yScale.options.max = undefined;
+      } else {
+        // Data spans 3+ years, zoom to past 3 years
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setFullYear(endDate.getFullYear() - 3);
+
+        xScale.options.min = startDate.getTime();
+        xScale.options.max = endDate.getTime();
+
+        // Explicitly set y-axis range for the visible data
+        const visibleData = data.filter(point => 
+          point.timestamp >= startDate.getTime() && point.timestamp <= endDate.getTime()
+        );
+
+        if (visibleData.length > 0) {
+          const visiblePrices = visibleData.map(d => d.price);
+          const minPrice = Math.min(...visiblePrices);
+          const maxPrice = Math.max(...visiblePrices);
+          const priceRange = maxPrice - minPrice;
+          const pricePadding = priceRange * 0.1;
+          
+          yScale.options.min = Math.max(0, minPrice - pricePadding);
+          yScale.options.max = maxPrice + pricePadding;
+        } else {
+          yScale.options.min = undefined;
+          yScale.options.max = undefined;
+        }
       }
       
       chart.update('none');
