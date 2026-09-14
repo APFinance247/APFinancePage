@@ -1,0 +1,3 @@
+# Cached universe listings (Wikipedia S&P 500, Nasdaq symbol directory).
+# Refetched automatically after 24h; safe to delete at any time.
+.cache/

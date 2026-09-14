@@ -92,6 +92,21 @@ This is a base rate over one ticker's own history. It is:
 Quote the median with the sample count and the worst case. Never quote the
 average alone — one 1226% outlier drags it anywhere.
 
+## The score saturates at both ends
+
+The 1-3 branch assigns a flat 1.0 to anything whose deepest deviation across the
+50/100/200-week SMAs is 25% or worse, and the yellow branch assigns a flat 9.5
+above twice the yellow threshold. Neither has any resolution beyond that point.
+
+In practice this means a broad selloff pins dozens of names at exactly 1.00, and
+they are not equally dislocated — one is 26% below its 200-week SMA and another
+is 60% below. A screen sorted by score alone cannot tell them apart, which is
+why `screen.mjs` breaks ties on distance from the 50-week SMA.
+
+When a report cites a floored score, cite the underlying deviation next to it.
+"Risk 1.0, 39% below its 50-week SMA" is information; "Risk 1.0" alone is a
+clipped reading.
+
 ## What this score cannot tell you
 
 - **Whether the company is any good.** No revenue, margin, cash flow or

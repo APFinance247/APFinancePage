@@ -1,6 +1,6 @@
 ---
 name: stock-analysis
-description: Research any stock, ETF or crypto ticker end-to-end in about five minutes — runs the APFinance risk model (1-10) on live price history, then layers on fundamentals, valuation, catalysts and recent news to produce a written research report with an explicit verdict. Use whenever someone asks to analyze, research, value, or get a read on a ticker ("analyze NVDA", "is AMD expensive right now", "what's the risk on Bitcoin", "should I look at UNH"), or asks for a risk score, an entry-point read, or a comparison between two tickers.
+description: Find and research stocks. Screens a whole universe — the S&P 500, Nasdaq, or every US-traded common stock — by the APFinance risk model (1-10) to surface candidates, then researches any single ticker end-to-end in about five minutes with fundamentals, valuation, catalysts and news, producing a written report with an explicit verdict. Use whenever someone asks to analyze, research, value, or get a read on a ticker ("analyze NVDA", "is AMD expensive right now", "what's the risk on Bitcoin"), asks for a risk score, an entry point, or a comparison — or asks what to buy, what looks cheap, what's oversold, or wants a watchlist, a scan, or a screen across the market.
 ---
 
 # Stock analysis
@@ -11,6 +11,48 @@ explain it.
 
 The quantitative half is deterministic and runs locally. The qualitative half
 is web research. Do both; a report with only one half is not the deliverable.
+
+**Which step to start at.** If the user named a ticker, start at Step 1. If they
+asked an open question — what's cheap, what's oversold, what should I be looking
+at — start at Step 0 to build the candidate list, then run Steps 1-3 on the two
+or three names worth the depth. Never run a full report on twenty screen rows.
+
+## Step 0 — Screen for candidates (only when no ticker was named)
+
+```bash
+node .claude/skills/stock-analysis/scripts/screen.mjs --max-risk=3.5 --limit=20
+```
+
+Scores an entire universe with the same risk model and ranks it. The full S&P
+500 takes about 20 seconds.
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `--universe=` | `sp500` | `sp500` (~500) · `nasdaq` (~3000 Nasdaq-listed) · `all` (~4800 US common stocks) · `tracked` (the site's own CSVs) · `file:PATH` · `AMD,SNDK,NVDA` |
+| `--sort=` | `risk-asc` | `risk-desc` (most extended) · `percentile-asc/desc` (rare *for that ticker*) · `drawdown` · `momentum` |
+| `--max-risk=` `--min-risk=` | — | Score filters |
+| `--min-dollar-volume=` | `5000000` | 30-session average. Raise to 20M+ on `nasdaq`/`all` or the list fills with microcaps |
+| `--limit=` | `25` | Rows printed |
+| `--json` | off | Machine-readable, for further filtering |
+
+Universe lists come from Wikipedia (S&P 500) and the Nasdaq symbol directory,
+cached for a day under `.cache/`. Both are free and keyless.
+
+Reading the output:
+
+- **`risk-asc` alone is a blunt instrument.** The score floors at exactly 1.00,
+  and in a drawdown dozens of names tie there. Ties break on distance below the
+  50-week SMA, so the top rows are the most dislocated — but a 1.00 means "as
+  low as this model goes", not "the best opportunity".
+- **`percentile-asc` is the sharper screen — except at the floor.** It asks how
+  unusual today's score is *for that ticker*, surfacing a quality name at an
+  unusual discount rather than whatever fell hardest. But a floored score is
+  always the ticker's own minimum, so every 1.00 name also shows 0% and the two
+  sorts collapse into each other. Pair it with `--min-risk=1.5` to see past them.
+- **A low score is a question, not an answer.** Half of any deep-value screen is
+  broken businesses that deserve to be down. Step 2 is what separates them.
+
+Then pick candidates and run the full workflow on each. Say why you picked them.
 
 ## Step 1 — Run the risk snapshot
 
